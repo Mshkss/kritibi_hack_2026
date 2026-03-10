@@ -1,0 +1,5 @@
+{
+  "name": "Road Network Constructor",
+  "description": "Interactive road network editor with map integration, OSM import, and graph validation.",
+  "requestFramePermissions": []
+}
