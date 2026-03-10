@@ -4,3 +4,5 @@ venv/bin/activate
 
 запуск:
 docker compose up --build
+
+123
