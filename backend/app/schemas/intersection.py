@@ -10,6 +10,7 @@ IntersectionKind = Literal["crossroad", "roundabout"]
 ApproachRole = Literal["main", "secondary"]
 TrafficSignType = Literal["main_road", "yield", "stop"]
 SecondarySignPolicy = Literal["yield", "stop"]
+PedestrianCrossingKind = Literal["zebra", "signalized", "uncontrolled"]
 
 
 class IntersectionCreateRequest(BaseModel):
@@ -292,6 +293,83 @@ class IntersectionExportHintsResponse(BaseModel):
     notes: list[str]
 
 
+class PedestrianCrossingCreateRequest(BaseModel):
+    """Create one pedestrian crossing on intersection side."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    approach_id: str | None = None
+    side_key: str = Field(min_length=1, max_length=255)
+    is_enabled: bool = True
+    name: str | None = Field(default=None, max_length=512)
+    crossing_kind: PedestrianCrossingKind | None = None
+
+
+class PedestrianCrossingPatchRequest(BaseModel):
+    """Patch pedestrian crossing fields."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    approach_id: str | None = None
+    side_key: str | None = Field(default=None, min_length=1, max_length=255)
+    is_enabled: bool | None = None
+    name: str | None = Field(default=None, max_length=512)
+    crossing_kind: PedestrianCrossingKind | None = None
+
+
+class PedestrianCrossingResponse(BaseModel):
+    """Pedestrian crossing DTO."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    project_id: str
+    intersection_id: str
+    approach_id: str | None = None
+    side_key: str
+    is_enabled: bool
+    name: str | None = None
+    crossing_kind: PedestrianCrossingKind | None = None
+    incoming_edge_id: str | None = None
+    incoming_edge_code: str | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class PedestrianCrossingListResponse(BaseModel):
+    """Crossing list for one intersection."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    intersection_id: str
+    crossings: list[PedestrianCrossingResponse]
+
+
+class PedestrianCrossingSideCandidateResponse(BaseModel):
+    """Candidate side for crossing creation."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    side_key: str
+    approach_id: str | None = None
+    incoming_edge_id: str | None = None
+    incoming_edge_code: str | None = None
+    already_has_crossing: bool
+    crossing_id: str | None = None
+    crossing_is_enabled: bool | None = None
+
+
+class PedestrianCrossingSidesResponse(BaseModel):
+    """Candidate sides and diagnostics for intersection."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    intersection_id: str
+    candidate_sides: list[PedestrianCrossingSideCandidateResponse]
+    warnings: list[str]
+    errors: list[str]
+
+
 class IntersectionEditorResponse(BaseModel):
     """Full editor payload for intersection UI."""
 
@@ -307,3 +385,5 @@ class IntersectionEditorResponse(BaseModel):
     priority_scheme: PrioritySchemeResponse
     generated_signs: list[TrafficSignResponse]
     export_hints: IntersectionExportHintsResponse
+    pedestrian_crossings: list[PedestrianCrossingResponse]
+    pedestrian_crossing_sides: PedestrianCrossingSidesResponse

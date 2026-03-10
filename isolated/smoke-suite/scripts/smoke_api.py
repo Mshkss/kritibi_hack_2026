@@ -17,10 +17,10 @@ from typing import Any, Callable
 class Step:
     name: str
     method: str
-    path: Callable[[dict[str, str]], str]
+    path: Callable[[dict[str, Any]], str]
     expected_statuses: tuple[int, ...]
-    body: Callable[[dict[str, str]], dict[str, Any]] | None = None
-    capture: Callable[[dict[str, str], Any], None] | None = None
+    body: Callable[[dict[str, Any]], dict[str, Any]] | None = None
+    capture: Callable[[dict[str, Any], Any], None] | None = None
 
 
 def http_request(base_url: str, method: str, path: str, body: dict[str, Any] | None) -> tuple[int, Any]:
@@ -55,7 +55,7 @@ def http_request(base_url: str, method: str, path: str, body: dict[str, Any] | N
 
 
 def build_steps(suffix: str) -> list[Step]:
-    def create_edge_body(ctx: dict[str, str]) -> dict[str, Any]:
+    def create_edge_body(ctx: dict[str, Any]) -> dict[str, Any]:
         return {
             "code": f"E-{suffix}",
             "from_node_id": ctx["node_a_id"],
@@ -408,6 +408,79 @@ def build_steps(suffix: str) -> list[Step]:
             ),
         ),
         Step(
+            name="pedestrian_crossing_sides",
+            method="GET",
+            path=lambda ctx: f"/projects/{ctx['project_id']}/intersections/{ctx['intersection_id']}/pedestrian-crossing-sides",
+            expected_statuses=(200,),
+            capture=lambda ctx, body: ctx.update(
+                {
+                    "pedestrian_side_key": (body.get("candidate_sides") or [{}])[0].get("side_key", ""),
+                }
+            ),
+        ),
+        Step(
+            name="create_pedestrian_crossing",
+            method="POST",
+            path=lambda ctx: f"/projects/{ctx['project_id']}/intersections/{ctx['intersection_id']}/pedestrian-crossings",
+            expected_statuses=(201,),
+            body=lambda ctx: {
+                "approach_id": ctx["approach_id"],
+                "side_key": f"approach:{ctx['approach_id']}",
+                "is_enabled": True,
+                "name": "Crosswalk A",
+                "crossing_kind": "zebra",
+            },
+            capture=lambda ctx, body: ctx.update({"pedestrian_crossing_id": body["id"]}),
+        ),
+        Step(
+            name="list_pedestrian_crossings",
+            method="GET",
+            path=lambda ctx: f"/projects/{ctx['project_id']}/intersections/{ctx['intersection_id']}/pedestrian-crossings",
+            expected_statuses=(200,),
+        ),
+        Step(
+            name="get_pedestrian_crossing",
+            method="GET",
+            path=lambda ctx: f"/projects/{ctx['project_id']}/intersections/{ctx['intersection_id']}/pedestrian-crossings/{ctx['pedestrian_crossing_id']}",
+            expected_statuses=(200,),
+        ),
+        Step(
+            name="create_pedestrian_crossing_duplicate_side",
+            method="POST",
+            path=lambda ctx: f"/projects/{ctx['project_id']}/intersections/{ctx['intersection_id']}/pedestrian-crossings",
+            expected_statuses=(409,),
+            body=lambda ctx: {
+                "approach_id": ctx["approach_id"],
+                "side_key": f"approach:{ctx['approach_id']}",
+                "is_enabled": True,
+                "name": "Duplicate crossing",
+                "crossing_kind": "signalized",
+            },
+        ),
+        Step(
+            name="create_pedestrian_crossing_invalid_side",
+            method="POST",
+            path=lambda ctx: f"/projects/{ctx['project_id']}/intersections/{ctx['intersection_id']}/pedestrian-crossings",
+            expected_statuses=(400,),
+            body=lambda _ctx: {
+                "side_key": "approach:not-a-real-approach",
+                "is_enabled": True,
+                "name": "Invalid side crossing",
+                "crossing_kind": "zebra",
+            },
+        ),
+        Step(
+            name="patch_pedestrian_crossing_disable",
+            method="PATCH",
+            path=lambda ctx: f"/projects/{ctx['project_id']}/intersections/{ctx['intersection_id']}/pedestrian-crossings/{ctx['pedestrian_crossing_id']}",
+            expected_statuses=(200,),
+            body=lambda _ctx: {
+                "is_enabled": False,
+                "name": "Crosswalk A disabled",
+                "crossing_kind": "uncontrolled",
+            },
+        ),
+        Step(
             name="patch_approach_priority",
             method="PATCH",
             path=lambda ctx: f"/projects/{ctx['project_id']}/intersections/{ctx['intersection_id']}/approaches/{ctx['approach_id']}",
@@ -494,6 +567,12 @@ def build_steps(suffix: str) -> list[Step]:
             method="GET",
             path=lambda ctx: f"/projects/{ctx['project_id']}/intersections/{ctx['intersection_id']}/validation",
             expected_statuses=(200,),
+        ),
+        Step(
+            name="delete_pedestrian_crossing",
+            method="DELETE",
+            path=lambda ctx: f"/projects/{ctx['project_id']}/intersections/{ctx['intersection_id']}/pedestrian-crossings/{ctx['pedestrian_crossing_id']}",
+            expected_statuses=(204,),
         ),
         Step(
             name="delete_connection_manual",

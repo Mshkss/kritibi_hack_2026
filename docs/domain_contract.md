@@ -1,4 +1,4 @@
-# Domain Contract (Stage: Network + Segment Editor + Connection + Intersection + Priority & Signs)
+# Domain Contract (Stage: Network + Segment Editor + Connection + Intersection + Priority/Signs + Pedestrian Crossings)
 
 ## Purpose
 
@@ -6,20 +6,18 @@
 - topology layer: `Node/Edge/Lane/RoadType`,
 - traversability layer: `Connection`,
 - intersection editor layer: `Intersection/IntersectionApproach/Movement`,
-- priority/sign layer: `approach.role/priority_rank` + `TrafficSign`.
+- priority/sign layer: `IntersectionApproach.role/priority_rank` + `TrafficSign`,
+- pedestrian layer: `PedestrianCrossing`.
 
 `Project` остается корневой агрегирующей сущностью.
 
 ## Core Principles
 
-- `Node` и `Intersection` разделены по ответственности:
-  - `Node` = геометрия и топология графа.
-  - `Intersection` = редакторская настройка узла.
-- `Connection` и `Movement` не дублируют источник истины:
-  - `Connection` хранит lane-level переход через node.
-  - `Movement` — intersection-wrapper поверх connection (`is_enabled`, metadata).
-- Priority layer строится поверх `IntersectionApproach`, не создает второй граф.
-- Модель остается SUMO-ready без преждевременного усложнения.
+- `Node` и `Intersection` разделены по ответственности.
+- `Connection` хранит lane-level топологию; `Movement` — editor-level управление маневром.
+- Priority layer живет на `IntersectionApproach`, без отдельной схемной таблицы.
+- Pedestrian crossings — отдельная сущность, а не boolean-флаг на approach.
+- `side_key` — source of truth для идентификации стороны crossing в intersection.
 
 ## Active Entities
 
@@ -115,8 +113,8 @@ Lane-level directed transition через `via_node`.
 - `id`
 - `project_id`
 - `via_node_id`
-- `from_edge_id` (incoming edge)
-- `to_edge_id` (outgoing edge)
+- `from_edge_id`
+- `to_edge_id`
 - `from_lane_index`
 - `to_lane_index`
 - `uncontrolled`
@@ -142,7 +140,7 @@ Editor-конфигурация поверх `Node`.
 - `updated_at`
 
 Инварианты:
-- один `Node` -> максимум один `Intersection` (`unique(node_id)`).
+- один `Node` -> максимум один `Intersection`.
 
 ## IntersectionApproach
 
@@ -163,7 +161,6 @@ Editor-конфигурация поверх `Node`.
 Инварианты:
 - unique `(intersection_id, incoming_edge_id)`
 - `incoming_edge_id` должен быть incoming для `intersection.node_id`
-- `role` check: `main|secondary|null`
 
 ## Movement
 
@@ -185,12 +182,12 @@ Editor-конфигурация поверх `Node`.
 - `updated_at`
 
 Source of truth:
-- `connection_id` — первичный источник истины.
-- `from/to edge + lane` — denormalized editor snapshot.
+- `connection_id`.
+- `from/to edge + lane` — denormalized snapshot для editor.
 
 ## TrafficSign
 
-Persisted знак для editor/export подготовки.
+Persisted знак для editor/export.
 
 Поля:
 - `id`
@@ -200,44 +197,72 @@ Persisted знак для editor/export подготовки.
 - `node_id` nullable
 - `edge_id` nullable
 - `sign_type` (`main_road` | `yield` | `stop`)
-- `generated` bool
+- `generated`
 - `metadata` JSON nullable
 - `created_at`
 - `updated_at`
 
+## PedestrianCrossing
+
+Persisted pedestrian crossing на стороне intersection.
+
+Поля:
+- `id`
+- `project_id`
+- `intersection_id`
+- `approach_id` nullable
+- `side_key`
+- `is_enabled`
+- `name` nullable
+- `crossing_kind` nullable (`zebra` | `signalized` | `uncontrolled`)
+- `created_at`
+- `updated_at`
+
 Инварианты:
-- должна быть хотя бы одна scope-привязка (`intersection_id` или `node_id` или `edge_id`)
-- generated signs по intersection+approach+type не дублируются.
+- unique `(intersection_id, side_key)` — один crossing на сторону.
+- `side_key` = source of truth идентификатора стороны.
+- `approach_id` — optional link на `IntersectionApproach`.
 
 ## Priority/Sign Decisions (MVP)
 
 1. Source of truth priority scheme:
 - `IntersectionApproach.role` + `IntersectionApproach.priority_rank`.
-- отдельная `priority_scheme` таблица не вводится.
 
 2. Draft policy:
-- неполная схема разрешена к сохранению (draft режим).
-- отдельная validation-операция возвращает `is_valid/is_complete`.
-- экспорт/генерация знаков требуют валидной схемы.
+- неполная схема разрешена.
+- validation показывает `is_valid/is_complete`.
 
-3. Sign persistence policy:
-- `TrafficSign` хранится в БД.
-- generated signs создаются/обновляются сервисом.
-- ручные (`generated=false`) не затираются генератором.
+3. Sign persistence:
+- generated signs persisted, manual signs не затираются.
 
-4. Yield/stop policy:
-- default secondary -> `yield`.
-- `stop` включается явно через policy параметр генерации.
+4. Secondary sign policy:
+- default secondary -> `yield`, `stop` только явным параметром.
 
 5. Export hints:
-- derived helper возвращает `node_type`.
-- если приоритетная схема валидна и есть `stop` signs -> `priority_stop`.
-- если валидна без `stop` -> `priority`.
+- `priority_stop` если схема валидна и есть `stop`,
+- `priority` если валидна без `stop`,
 - иначе `node_type = null`.
 
-6. Regeneration semantics:
-- strategy: upsert generated signs + remove stale generated signs для intersection.
-- manual signs не удаляются.
+## Pedestrian Crossing Decisions (MVP)
+
+1. Side semantics:
+- `side_key` технический стабильный ключ стороны.
+- текущий формат candidate sides: `approach:{approach_id}`.
+
+2. Source of truth:
+- `side_key` определяет сторону и уникальность.
+- `approach_id` вторичен, для editor/topology связи.
+
+3. Uniqueness policy:
+- один crossing на сторону (`unique(intersection_id, side_key)`).
+
+4. Disable semantics:
+- `is_enabled=false` отключает crossing без удаления.
+- физическое удаление — отдельная delete-операция.
+
+5. Candidate sides derivation:
+- строится из текущих `IntersectionApproach`.
+- если approaches есть, `side_key` обязан соответствовать candidate side.
 
 ## Existing Stage Decisions (unchanged)
 
@@ -249,8 +274,9 @@ Persisted знак для editor/export подготовки.
 
 ## Deferred Next Stages
 
+- pedestrian conflict matrix
+- pedestrian priorities/right-of-way engine
 - traffic light phases/signal groups
-- conflict matrix / right-of-way engine
-- pedestrian crossing layer
-- roundabout-specific yield logic
+- conflict matrix для vehicle movements
+- detailed crossing geometry/markup
 - full SUMO XML pipeline (import/export orchestration)

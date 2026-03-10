@@ -1,4 +1,4 @@
-# JSON Contract (Stage: Priority & Signs over Intersection Editor)
+# JSON Contract (Stage: Pedestrian Crossings over Intersection Editor)
 
 Base URL: `/`  
 Content-Type: `application/json`
@@ -19,144 +19,28 @@ Content-Type: `application/json`
 
 - Foundation + Project + Network + Segment editor endpoints.
 - Connection layer endpoints.
-- Intersection editor endpoints:
-  - create/get/patch intersection
-  - sync/list approaches
-  - sync/list/patch movements
-  - editor card + validation
+- Intersection editor endpoints.
+- Priority/sign endpoints.
 
-## Priority & Signs Endpoints
+## Pedestrian Crossing Endpoints
 
-## PATCH `/projects/{project_id}/intersections/{intersection_id}/approaches/{approach_id}`
+## POST `/projects/{project_id}/intersections/{intersection_id}/pedestrian-crossings`
 
-Обновляет `role`/`priority_rank` у одного подхода.
+Создает pedestrian crossing на стороне intersection.
 
-Request (`IntersectionApproachPriorityPatchRequest`):
+Request (`PedestrianCrossingCreateRequest`):
 
 ```json
 {
-  "role": "main",
-  "priority_rank": 0
+  "approach_id": "uuid",
+  "side_key": "approach:uuid",
+  "is_enabled": true,
+  "name": "North crosswalk",
+  "crossing_kind": "zebra"
 }
 ```
 
-Response `200` (`IntersectionApproachResponse`):
-
-```json
-{
-  "id": "uuid",
-  "project_id": "uuid",
-  "intersection_id": "uuid",
-  "incoming_edge_id": "uuid",
-  "incoming_edge_code": "E_in_north",
-  "incoming_edge_name": "North In",
-  "order_index": 0,
-  "name": "North",
-  "role": "main",
-  "priority_rank": 0,
-  "created_at": "2026-03-11T00:00:00Z",
-  "updated_at": "2026-03-11T00:01:00Z"
-}
-```
-
-## PUT `/projects/{project_id}/intersections/{intersection_id}/priority-scheme`
-
-Массово обновляет схему по approaches.
-
-Request (`PrioritySchemePutRequest`):
-
-```json
-{
-  "items": [
-    {"approach_id": "a1", "role": "main", "priority_rank": 0},
-    {"approach_id": "a2", "role": "main", "priority_rank": 1},
-    {"approach_id": "a3", "role": "secondary", "priority_rank": 0},
-    {"approach_id": "a4", "role": "secondary", "priority_rank": 1}
-  ],
-  "reset_missing": false
-}
-```
-
-Response `200` (`PrioritySchemeResponse`):
-
-```json
-{
-  "intersection_id": "uuid",
-  "approaches": [],
-  "summary": {
-    "main_count": 2,
-    "secondary_count": 2,
-    "unassigned_count": 0,
-    "is_complete": true,
-    "has_conflicts": false
-  }
-}
-```
-
-## GET `/projects/{project_id}/intersections/{intersection_id}/priority-scheme`
-
-Возвращает текущую схему (`PrioritySchemeResponse`).
-
-## GET `/projects/{project_id}/intersections/{intersection_id}/priority-validation`
-
-Валидация схемы (`PrioritySchemeValidationResponse`).
-
-Response `200`:
-
-```json
-{
-  "intersection_id": "uuid",
-  "is_valid": true,
-  "is_complete": true,
-  "missing_roles": [],
-  "warnings": [],
-  "errors": [],
-  "exportable_as_priority_controlled": true
-}
-```
-
-## POST `/projects/{project_id}/intersections/{intersection_id}/signs/generate`
-
-Генерирует/обновляет persisted generated signs.
-
-Request (`SignGenerationRequest`):
-
-```json
-{
-  "secondary_sign_type": "yield"
-}
-```
-
-Допустимые значения `secondary_sign_type`:
-- `yield` (default)
-- `stop`
-
-Response `200` (`SignGenerationResponse`):
-
-```json
-{
-  "intersection_id": "uuid",
-  "secondary_sign_type": "yield",
-  "created_count": 4,
-  "updated_count": 0,
-  "deleted_count": 1,
-  "signs": [],
-  "diagnostics": [
-    "approaches=4",
-    "desired_generated=4",
-    "created=4",
-    "updated=0",
-    "deleted_stale_generated=1",
-    "secondary_sign_type=yield"
-  ]
-}
-```
-
-## GET `/projects/{project_id}/intersections/{intersection_id}/signs`
-
-Список знаков пересечения (`TrafficSignResponse[]`).
-
-TrafficSign DTO:
+Response `201` (`PedestrianCrossingResponse`):
 
 ```json
 {
@@ -164,94 +48,124 @@ TrafficSign DTO:
   "project_id": "uuid",
   "intersection_id": "uuid",
   "approach_id": "uuid",
-  "node_id": "uuid",
-  "edge_id": "uuid",
-  "sign_type": "yield",
-  "generated": true,
-  "metadata": {
-    "source": "priority_scheme",
-    "role": "secondary",
-    "priority_rank": 0
-  },
+  "side_key": "approach:uuid",
+  "is_enabled": true,
+  "name": "North crosswalk",
+  "crossing_kind": "zebra",
+  "incoming_edge_id": "uuid",
+  "incoming_edge_code": "E_IN_N",
   "created_at": "2026-03-11T00:00:00Z",
   "updated_at": "2026-03-11T00:00:00Z"
 }
 ```
 
-## GET `/projects/{project_id}/intersections/{intersection_id}/export-hints`
+## GET `/projects/{project_id}/intersections/{intersection_id}/pedestrian-crossings`
 
-Derived hints для экспортера (`IntersectionExportHintsResponse`).
+Возвращает crossings intersection.
 
-Response `200`:
+Response `200` (`PedestrianCrossingListResponse`):
 
 ```json
 {
   "intersection_id": "uuid",
-  "node_type": "priority_stop",
-  "priority_controlled": true,
-  "requires_stop_signs": true,
-  "requires_yield_signs": false,
-  "notes": []
+  "crossings": []
 }
 ```
+
+## GET `/projects/{project_id}/intersections/{intersection_id}/pedestrian-crossings/{crossing_id}`
+
+Response `200`: `PedestrianCrossingResponse`.
+
+## PATCH `/projects/{project_id}/intersections/{intersection_id}/pedestrian-crossings/{crossing_id}`
+
+Обновляет crossing.
+
+Request (`PedestrianCrossingPatchRequest`):
+
+```json
+{
+  "is_enabled": false,
+  "name": "North crossing disabled",
+  "crossing_kind": "signalized"
+}
+```
+
+Response `200`: `PedestrianCrossingResponse`.
+
+## DELETE `/projects/{project_id}/intersections/{intersection_id}/pedestrian-crossings/{crossing_id}`
+
+Удаляет crossing.  
+Response `204` (no body).
+
+## GET `/projects/{project_id}/intersections/{intersection_id}/pedestrian-crossing-sides`
+
+Возвращает candidate sides, построенные из approaches.
+
+Response `200` (`PedestrianCrossingSidesResponse`):
+
+```json
+{
+  "intersection_id": "uuid",
+  "candidate_sides": [
+    {
+      "side_key": "approach:uuid",
+      "approach_id": "uuid",
+      "incoming_edge_id": "uuid",
+      "incoming_edge_code": "E_IN_N",
+      "already_has_crossing": true,
+      "crossing_id": "uuid",
+      "crossing_is_enabled": true
+    }
+  ],
+  "warnings": [],
+  "errors": []
+}
+```
+
+## Side Key Semantics
+
+1. `side_key` — source of truth стороны crossing.
+2. В текущем MVP candidate side имеет формат `approach:{approach_id}`.
+3. Если intersection имеет approaches, `side_key` должен совпадать с одним из candidate sides.
+4. Если задан `approach_id`, `side_key` обязан совпадать с `approach:{approach_id}`.
+
+## Uniqueness & Lifecycle
+
+1. На одну сторону допускается только один crossing:
+- `unique(intersection_id, side_key)`.
+
+2. Disable vs delete:
+- `is_enabled=false` сохраняет crossing, но отключает.
+- физическое удаление — `DELETE`.
 
 ## Updated Intersection Editor Card
 
 `GET /projects/{project_id}/intersections/{intersection_id}/editor` дополнен:
-- `priority_scheme`
-- `generated_signs`
-- `export_hints`
+- `pedestrian_crossings[]`
+- `pedestrian_crossing_sides`
 
-## Validation/Business Rules
+## Validation / Error Cases
 
-1. `role`:
-- `main | secondary | null`
-
-2. `priority_rank`:
-- nullable
-- если задан: `>= 0`
-
-3. Draft policy:
-- неполная схема разрешена к сохранению
-- `priority-validation` возвращает `is_valid=false` до завершения схемы
-
-4. Схема считается export-ready когда:
-- все approaches имеют роль
-- есть минимум один `main`
-- нет conflict-ов rank/role
-
-5. Sign generation:
-- работает только при валидной схеме
-- upsert only generated signs
-- stale generated signs удаляются
-- manual signs (`generated=false`) не трогаются
-
-6. Secondary sign policy:
-- default `secondary -> yield`
-- `stop` только через явный `secondary_sign_type=stop`
-
-## Typical Error Cases
-
-`400` empty PATCH:
+`400` invalid side_key:
 
 ```json
-{"detail": "PATCH payload must include at least one field"}
+{"detail": "side_key '...' is invalid for intersection '...'"}
 ```
 
-`400` invalid generation on incomplete scheme:
+`400` approach mismatch:
 
 ```json
-{"detail": "Cannot generate signs: Some approaches have no assigned role; Priority scheme requires at least one main approach"}
+{"detail": "side_key '...' must match approach side 'approach:...'"}
 ```
 
-`404` approach not in intersection:
+`404` crossing not found:
 
 ```json
-{"detail": "Approach '...' not found in intersection '...'"}
+{"detail": "PedestrianCrossing '...' not found in intersection '...'"}
 ```
 
-`409` DB-level conflicts:
+`409` duplicate side:
 
 ```json
-{"detail": "Priority scheme update violates constraints"}
+{"detail": "PedestrianCrossing for side 'approach:...' already exists in intersection '...'"}
 ```

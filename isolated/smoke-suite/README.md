@@ -12,6 +12,7 @@
 - network/editor endpoints (`projects`, `nodes`, `road-types`, `edges`)
 - connection endpoints (`create/patch/delete`, `node connections`, `candidates`, `autogenerate`)
 - intersection endpoints (`create/get/patch`, `approaches`, `priority-scheme`, `signs`, `movements`, `editor`, `validation`)
+- pedestrian crossing endpoints (`sides`, `create/list/get/patch/delete`, `duplicate side 409`, `invalid side 400`)
 - негативные кейсы для `Connection layer` (`invalid topology`, `autogenerate add_missing_only=false`)
 
 ## 1) Запуск backend
