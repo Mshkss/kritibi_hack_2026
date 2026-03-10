@@ -40,6 +40,17 @@ services:
     ports:
       - "3000:3000"
 
+  isolated-editor-ui:
+    build:
+      context: ../isolated/network-editor-mvp
+    environment:
+      VITE_API_PROXY_TARGET: http://backend:8000
+    depends_on:
+      backend:
+        condition: service_healthy
+    ports:
+      - "3001:3000"
+
   smoke-ui:
     image: nginx:1.27-alpine
     depends_on:

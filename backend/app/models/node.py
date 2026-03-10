@@ -59,3 +59,9 @@ class NodeModel(Base):
         uselist=False,
         passive_deletes=True,
     )
+    traffic_signs: Mapped[list["TrafficSignModel"]] = relationship(
+        "TrafficSignModel",
+        back_populates="node",
+        foreign_keys="TrafficSignModel.node_id",
+        passive_deletes=True,
+    )

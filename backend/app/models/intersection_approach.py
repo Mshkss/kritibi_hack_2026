@@ -20,6 +20,8 @@ class IntersectionApproachModel(Base):
     __table_args__ = (
         UniqueConstraint("intersection_id", "incoming_edge_id", name="uq_approaches_intersection_incoming_edge"),
         CheckConstraint("order_index is null or order_index >= 0", name="ck_approaches_order_index_non_negative"),
+        CheckConstraint("role in ('main', 'secondary') or role is null", name="ck_approaches_role"),
+        CheckConstraint("priority_rank is null or priority_rank >= 0", name="ck_approaches_priority_rank_non_negative"),
         Index("ix_approaches_project_id", "project_id"),
         Index("ix_approaches_intersection_id", "intersection_id"),
         Index("ix_approaches_incoming_edge_id", "incoming_edge_id"),
@@ -31,6 +33,8 @@ class IntersectionApproachModel(Base):
     incoming_edge_id: Mapped[str] = mapped_column(ForeignKey("edges.id", ondelete="CASCADE"), nullable=False)
     order_index: Mapped[int | None] = mapped_column(Integer, nullable=True)
     name: Mapped[str | None] = mapped_column(Text, nullable=True)
+    role: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    priority_rank: Mapped[int | None] = mapped_column(Integer, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)
     updated_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
@@ -46,5 +50,15 @@ class IntersectionApproachModel(Base):
         "MovementModel",
         back_populates="approach",
         cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+    traffic_signs: Mapped[list["TrafficSignModel"]] = relationship(
+        "TrafficSignModel",
+        back_populates="approach",
+        passive_deletes=True,
+    )
+    pedestrian_crossings: Mapped[list["PedestrianCrossingModel"]] = relationship(
+        "PedestrianCrossingModel",
+        back_populates="approach",
         passive_deletes=True,
     )

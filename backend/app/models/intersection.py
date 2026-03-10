@@ -52,3 +52,15 @@ class IntersectionModel(Base):
         cascade="all, delete-orphan",
         passive_deletes=True,
     )
+    traffic_signs: Mapped[list["TrafficSignModel"]] = relationship(
+        "TrafficSignModel",
+        back_populates="intersection",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+    pedestrian_crossings: Mapped[list["PedestrianCrossingModel"]] = relationship(
+        "PedestrianCrossingModel",
+        back_populates="intersection",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )

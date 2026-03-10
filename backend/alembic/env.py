@@ -16,8 +16,10 @@ from app.models.intersection_approach import IntersectionApproachModel  # noqa: 
 from app.models.lane import LaneModel  # noqa: F401
 from app.models.movement import MovementModel  # noqa: F401
 from app.models.node import NodeModel  # noqa: F401
+from app.models.pedestrian_crossing import PedestrianCrossingModel  # noqa: F401
 from app.models.project import ProjectModel  # noqa: F401
 from app.models.road_type import RoadTypeModel  # noqa: F401
+from app.models.traffic_sign import TrafficSignModel  # noqa: F401
 
 config = context.config
 config.set_main_option("sqlalchemy.url", settings.database_url)
