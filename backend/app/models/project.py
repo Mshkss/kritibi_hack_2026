@@ -4,7 +4,7 @@ from datetime import datetime, timezone
 from uuid import uuid4
 
 from sqlalchemy import DateTime, String, Text
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column, relationship
 
 from app.db.base import Base
 
@@ -27,4 +27,29 @@ class ProjectModel(Base):
         nullable=False,
         default=utcnow,
         onupdate=utcnow,
+    )
+
+    nodes: Mapped[list["NodeModel"]] = relationship(
+        "NodeModel",
+        back_populates="project",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+    edges: Mapped[list["EdgeModel"]] = relationship(
+        "EdgeModel",
+        back_populates="project",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+    road_types: Mapped[list["RoadTypeModel"]] = relationship(
+        "RoadTypeModel",
+        back_populates="project",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+    connections: Mapped[list["ConnectionModel"]] = relationship(
+        "ConnectionModel",
+        back_populates="project",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
     )

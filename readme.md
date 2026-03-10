@@ -1,16 +1,17 @@
-# ITS Road Network Backend (Foundation)
+# ITS Road Network Backend
 
-Подготовительный backend-этап для системы проектирования интеллектуальной дорожно-транспортной сети.
+Backend для системы проектирования интеллектуальной дорожно-транспортной сети.
 
-Реализовано на этом этапе:
-- FastAPI skeleton
-- конфигурация через env
-- SQLAlchemy session/engine слой
-- Alembic миграции
-- healthcheck
-- CRUD для `Project`
+Текущий этап: **Network Constructor + Road Segment Editor + Connection Layer**.
 
-## 1. Быстрый старт локально
+Реализовано:
+- foundation (config/env, DB/session, Alembic, healthcheck, Project CRUD)
+- ядро дорожного графа: `Node`, `Edge`, `Lane`, `RoadType`
+- API для базового цикла конструктора сети
+- editor-операции для параметров участка (`Edge`) и полос (`Lane`)
+- connection layer для lane-level переходов через узел (`Connection`)
+
+## Local setup
 
 ```bash
 cd backend
@@ -19,22 +20,22 @@ source .venv/bin/activate
 pip install -r requirements.txt
 ```
 
-Создай `.env` (можно скопировать из `.env.example`) и при необходимости задай `DATABASE_URL`.
-По умолчанию пример настроен на SQLite для быстрого локального старта.
+## Environment
 
 ```bash
-cd backend
 cp ../.env.example .env
 ```
 
-## 2. Применение миграций
+`DATABASE_URL` можно использовать как SQLite для быстрого старта, так и PostgreSQL.
+
+## Migrations
 
 ```bash
 cd backend
-alembic upgrade head
+alembic -c alembic.ini upgrade head
 ```
 
-## 3. Запуск сервера
+## Run API
 
 ```bash
 cd backend
@@ -44,22 +45,53 @@ uvicorn app.main:app --reload --host 0.0.0.0 --port 8000
 Swagger:
 - `http://localhost:8000/docs`
 
-## 4. Запуск через Docker Compose
+## Docker Compose
 
 ```bash
-docker compose -f infra/compose.yml up --build
+docker compose -f infra/compose.yml up --build -d
+docker compose -f infra/compose.yml exec backend alembic -c alembic.ini upgrade head
 ```
 
-## 5. Доступные endpoints на foundation-этапе
+## Available endpoints (current stage)
 
 - `GET /health`
+
 - `POST /projects`
 - `GET /projects`
-- `GET /projects/{id}`
-- `PATCH /projects/{id}`
-- `DELETE /projects/{id}`
+- `GET /projects/{project_id}`
+- `PATCH /projects/{project_id}`
+- `DELETE /projects/{project_id}`
+- `GET /projects/{project_id}/network`
 
-## 6. Контракты
+- `POST /projects/{project_id}/nodes`
+- `GET /projects/{project_id}/nodes`
+- `PATCH /projects/{project_id}/nodes/{node_id}`
+- `DELETE /projects/{project_id}/nodes/{node_id}`
 
-- Доменный контракт: `docs/domain_contract.md`
-- JSON-контракт подготовительного этапа: `docs/json_contract.md`
+- `POST /projects/{project_id}/road-types`
+- `GET /projects/{project_id}/road-types`
+- `PATCH /projects/{project_id}/road-types/{road_type_id}`
+
+- `POST /projects/{project_id}/edges`
+- `POST /projects/{project_id}/edges/bidirectional`
+- `GET /projects/{project_id}/edges`
+- `GET /projects/{project_id}/edges/{edge_id}`
+- `GET /projects/{project_id}/edges/{edge_id}/editor`
+- `PATCH /projects/{project_id}/edges/{edge_id}`
+- `PATCH /projects/{project_id}/edges/{edge_id}/shape`
+- `POST /projects/{project_id}/edges/{edge_id}/recalculate-length`
+- `PUT /projects/{project_id}/edges/{edge_id}/lanes`
+- `PATCH /projects/{project_id}/edges/{edge_id}/lanes/{lane_id}`
+- `POST /projects/{project_id}/edges/{edge_id}/apply-road-type`
+
+- `POST /projects/{project_id}/connections`
+- `PATCH /projects/{project_id}/connections/{connection_id}`
+- `DELETE /projects/{project_id}/connections/{connection_id}`
+- `GET /projects/{project_id}/nodes/{node_id}/connections`
+- `GET /projects/{project_id}/nodes/{node_id}/connection-candidates`
+- `POST /projects/{project_id}/nodes/{node_id}/connections/autogenerate`
+
+## Contracts
+
+- `docs/domain_contract.md`
+- `docs/json_contract.md`

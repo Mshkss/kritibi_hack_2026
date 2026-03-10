@@ -4,8 +4,12 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, Query, Response, status
 
-from app.api.deps import get_project_service
+from app.api.deps import get_graph_service, get_project_service
+from app.api.serializers import edge_to_read
+from app.schemas.network import ProjectNetworkRead
 from app.schemas.project import ProjectCreate, ProjectRead, ProjectUpdate
+from app.services.errors import NotFoundError
+from app.services.graph_service import GraphService
 from app.services.project_service import EmptyPatchError, ProjectNotFoundError, ProjectService
 
 router = APIRouter(prefix="/projects")
@@ -34,6 +38,24 @@ def get_project(project_id: UUID, service: ProjectService = Depends(get_project_
         return service.get(str(project_id))
     except ProjectNotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+
+@router.get("/{project_id}/network", response_model=ProjectNetworkRead)
+def get_project_network(
+    project_id: UUID,
+    service: GraphService = Depends(get_graph_service),
+) -> ProjectNetworkRead:
+    try:
+        network = service.get_project_network(str(project_id))
+    except NotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+    return ProjectNetworkRead(
+        project=network["project"],
+        nodes=network["nodes"],
+        road_types=network["road_types"],
+        edges=[edge_to_read(edge) for edge in network["edges"]],
+    )
 
 
 @router.patch("/{project_id}", response_model=ProjectRead)
