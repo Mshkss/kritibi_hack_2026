@@ -1,5 +1,6 @@
 import type {Edge, Node, Point, ProjectNetwork} from '@/types/api';
 import type {NetworkMaps, ViewBoxState} from '@/types/editor';
+import {makeShortId} from '@/utils/id';
 
 export function buildNetworkMaps(network: ProjectNetwork | null): NetworkMaps {
   const nodesById: Record<string, Node> = {};
@@ -85,5 +86,5 @@ export function formatLaneSummary(edge: Edge): string {
 }
 
 export function createEntityCode(prefix: 'N' | 'E' | 'RT'): string {
-  return `${prefix}-${crypto.randomUUID().slice(0, 8)}`;
+  return `${prefix}-${makeShortId(8)}`;
 }
