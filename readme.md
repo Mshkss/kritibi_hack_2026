@@ -4,3 +4,6 @@ venv/bin/activate
 
 запуск:
 docker compose up --build
+
+док
+localhost:8000/docs
