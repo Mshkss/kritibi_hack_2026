@@ -82,7 +82,7 @@
     <main>
       <section class="panel">
         <h1>API Smoke UI</h1>
-        <p>Изолированный UI для проверки всех текущих endpoint'ов backend мок-данными.</p>
+        <p>Изолированный UI для проверки endpoint'ов backend, включая Connection layer.</p>
 
         <label for="base-url">Base URL (через nginx proxy)</label>
         <input id="base-url" value="/api" />
@@ -145,7 +145,7 @@
           method,
           path,
           status: response.status,
-          ok: response.ok,
+          ok: false,
           body: parsed,
         };
       }
@@ -184,6 +184,11 @@
             capture: (body) => { ctx.nodeBId = body.id; },
           },
           {
+            name: 'create_node_c', method: 'POST', path: () => `/projects/${ctx.projectId}/nodes`, expected: [201],
+            body: () => ({code: `N-${suffix}-C`, x: 80, y: 10, type: 'junction'}),
+            capture: (body) => { ctx.nodeCId = body.id; },
+          },
+          {
             name: 'create_disposable_node', method: 'POST', path: () => `/projects/${ctx.projectId}/nodes`, expected: [201],
             body: () => ({code: `N-${suffix}-D`, x: 100, y: 100, type: 'shape'}),
             capture: (body) => { ctx.disposableNodeId = body.id; },
@@ -213,13 +218,13 @@
             body: () => ({speed: 15, width: 3.6}),
           },
           {
-            name: 'create_edge', method: 'POST', path: () => `/projects/${ctx.projectId}/edges`, expected: [201],
+            name: 'create_edge_ab', method: 'POST', path: () => `/projects/${ctx.projectId}/edges`, expected: [201],
             body: () => ({
               code: `E-${suffix}`,
               from_node_id: ctx.nodeAId,
               to_node_id: ctx.nodeBId,
               road_type_id: ctx.roadTypeId,
-              name: 'Smoke edge',
+              name: 'Smoke edge AB',
               speed: 13.9,
               width: 3.5,
               shape: [{x: 12, y: 9}, {x: 40, y: 20}],
@@ -229,12 +234,26 @@
               ],
             }),
             capture: (body) => {
-              ctx.edgeId = body.id;
-              ctx.laneId = body.lanes[0]?.id;
+              ctx.edgeAbId = body.id;
+              ctx.edgeAbLaneId = body.lanes[0]?.id;
             },
           },
           {
-            name: 'create_bidirectional_edge', method: 'POST', path: () => `/projects/${ctx.projectId}/edges/bidirectional`, expected: [201],
+            name: 'create_edge_bc', method: 'POST', path: () => `/projects/${ctx.projectId}/edges`, expected: [201],
+            body: () => ({
+              code: `E-${suffix}-BC`,
+              from_node_id: ctx.nodeBId,
+              to_node_id: ctx.nodeCId,
+              road_type_id: ctx.roadTypeId,
+              name: 'B to C',
+              speed: 13,
+              width: 3.5,
+              shape: [{x: 40, y: 20}, {x: 80, y: 10}],
+            }),
+            capture: (body) => { ctx.edgeBcId = body.id; },
+          },
+          {
+            name: 'create_bidirectional_edge_ab', method: 'POST', path: () => `/projects/${ctx.projectId}/edges/bidirectional`, expected: [201],
             body: () => ({
               forward_code: `E-${suffix}-FWD`,
               reverse_code: `E-${suffix}-REV`,
@@ -243,38 +262,42 @@
               road_type_id: ctx.roadTypeId,
               shape: [{x: 12, y: 9}, {x: 40, y: 20}],
             }),
+            capture: (body) => {
+              ctx.edgeFwdId = body[0]?.id;
+              ctx.edgeRevId = body[1]?.id;
+            },
           },
           { name: 'list_edges', method: 'GET', path: () => `/projects/${ctx.projectId}/edges`, expected: [200] },
-          { name: 'get_edge', method: 'GET', path: () => `/projects/${ctx.projectId}/edges/${ctx.edgeId}`, expected: [200] },
-          { name: 'get_edge_editor', method: 'GET', path: () => `/projects/${ctx.projectId}/edges/${ctx.edgeId}/editor`, expected: [200] },
+          { name: 'get_edge_ab', method: 'GET', path: () => `/projects/${ctx.projectId}/edges/${ctx.edgeAbId}`, expected: [200] },
+          { name: 'get_edge_editor_ab', method: 'GET', path: () => `/projects/${ctx.projectId}/edges/${ctx.edgeAbId}/editor`, expected: [200] },
           {
-            name: 'patch_edge', method: 'PATCH', path: () => `/projects/${ctx.projectId}/edges/${ctx.edgeId}`, expected: [200],
+            name: 'patch_edge_ab', method: 'PATCH', path: () => `/projects/${ctx.projectId}/edges/${ctx.edgeAbId}`, expected: [200],
             body: () => ({name: 'Smoke edge updated', speed: 14.2, width: 3.7}),
           },
           {
-            name: 'patch_shape', method: 'PATCH', path: () => `/projects/${ctx.projectId}/edges/${ctx.edgeId}/shape`, expected: [200],
+            name: 'patch_shape_ab', method: 'PATCH', path: () => `/projects/${ctx.projectId}/edges/${ctx.edgeAbId}/shape`, expected: [200],
             body: () => ({shape: [{x: 12, y: 9}, {x: 20, y: 14}, {x: 40, y: 20}]}),
           },
-          { name: 'recalculate_length', method: 'POST', path: () => `/projects/${ctx.projectId}/edges/${ctx.edgeId}/recalculate-length`, expected: [200] },
+          { name: 'recalculate_length_ab', method: 'POST', path: () => `/projects/${ctx.projectId}/edges/${ctx.edgeAbId}/recalculate-length`, expected: [200] },
           {
-            name: 'replace_lanes', method: 'PUT', path: () => `/projects/${ctx.projectId}/edges/${ctx.edgeId}/lanes`, expected: [200],
+            name: 'replace_lanes_ab', method: 'PUT', path: () => `/projects/${ctx.projectId}/edges/${ctx.edgeAbId}/lanes`, expected: [200],
             body: () => ({lanes: [
               {index: 0, allow: 'passenger', speed: 14.0, width: 3.6},
               {index: 1, allow: 'passenger bus', speed: 13.4, width: 3.7},
             ]}),
             capture: (body) => {
-              ctx.laneId = body.lanes[0]?.id;
+              ctx.edgeAbLaneId = body.lanes[0]?.id;
             },
           },
           {
-            name: 'patch_lane', method: 'PATCH',
-            path: () => `/projects/${ctx.projectId}/edges/${ctx.edgeId}/lanes/${ctx.laneId}`,
+            name: 'patch_lane_ab', method: 'PATCH',
+            path: () => `/projects/${ctx.projectId}/edges/${ctx.edgeAbId}/lanes/${ctx.edgeAbLaneId}`,
             expected: [200],
             body: () => ({allow: 'passenger bus taxi', speed: 12.8}),
           },
           {
-            name: 'apply_road_type', method: 'POST',
-            path: () => `/projects/${ctx.projectId}/edges/${ctx.edgeId}/apply-road-type`,
+            name: 'apply_road_type_ab', method: 'POST',
+            path: () => `/projects/${ctx.projectId}/edges/${ctx.edgeAbId}/apply-road-type`,
             expected: [200],
             body: () => ({
               road_type_id: ctx.roadTypeId,
@@ -285,6 +308,72 @@
               apply_to_lanes: true,
             }),
           },
+          {
+            name: 'connection_candidates_node_b', method: 'GET',
+            path: () => `/projects/${ctx.projectId}/nodes/${ctx.nodeBId}/connection-candidates`,
+            expected: [200],
+          },
+          {
+            name: 'create_connection_manual', method: 'POST',
+            path: () => `/projects/${ctx.projectId}/connections`,
+            expected: [201],
+            body: () => ({
+              via_node_id: ctx.nodeBId,
+              from_edge_id: ctx.edgeAbId,
+              to_edge_id: ctx.edgeBcId,
+              from_lane_index: 0,
+              to_lane_index: 0,
+              uncontrolled: false,
+            }),
+            capture: (body) => { ctx.connectionId = body.id; },
+          },
+          {
+            name: 'patch_connection_manual', method: 'PATCH',
+            path: () => `/projects/${ctx.projectId}/connections/${ctx.connectionId}`,
+            expected: [200],
+            body: () => ({uncontrolled: true}),
+          },
+          {
+            name: 'node_connections_node_b', method: 'GET',
+            path: () => `/projects/${ctx.projectId}/nodes/${ctx.nodeBId}/connections`,
+            expected: [200],
+          },
+          {
+            name: 'create_connection_invalid_topology', method: 'POST',
+            path: () => `/projects/${ctx.projectId}/connections`,
+            expected: [400],
+            body: () => ({
+              via_node_id: ctx.nodeAId,
+              from_edge_id: ctx.edgeAbId,
+              to_edge_id: ctx.edgeBcId,
+              from_lane_index: 0,
+              to_lane_index: 0,
+              uncontrolled: false,
+            }),
+          },
+          {
+            name: 'autogenerate_connections_node_b', method: 'POST',
+            path: () => `/projects/${ctx.projectId}/nodes/${ctx.nodeBId}/connections/autogenerate`,
+            expected: [200],
+            body: () => ({add_missing_only: true, allow_u_turns: false, uncontrolled: false}),
+          },
+          {
+            name: 'autogenerate_connections_repeat', method: 'POST',
+            path: () => `/projects/${ctx.projectId}/nodes/${ctx.nodeBId}/connections/autogenerate`,
+            expected: [200],
+            body: () => ({add_missing_only: true, allow_u_turns: false, uncontrolled: false}),
+          },
+          {
+            name: 'autogenerate_invalid_mode', method: 'POST',
+            path: () => `/projects/${ctx.projectId}/nodes/${ctx.nodeBId}/connections/autogenerate`,
+            expected: [400],
+            body: () => ({add_missing_only: false, allow_u_turns: false, uncontrolled: false}),
+          },
+          {
+            name: 'delete_connection_manual', method: 'DELETE',
+            path: () => `/projects/${ctx.projectId}/connections/${ctx.connectionId}`,
+            expected: [204],
+          },
           { name: 'get_network', method: 'GET', path: () => `/projects/${ctx.projectId}/network`, expected: [200] },
           { name: 'delete_project', method: 'DELETE', path: () => `/projects/${ctx.projectId}`, expected: [204] },
         ];
@@ -293,9 +382,7 @@
           for (const step of steps) {
             const response = await request(baseUrl, step.method, step.path(), step.body ? step.body() : undefined);
             response.name = step.name;
-            if (!step.expected.includes(response.status)) {
-              response.ok = false;
-            }
+            response.ok = step.expected.includes(response.status);
 
             results.push(response);
             addLog(response);
