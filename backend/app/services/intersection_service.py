@@ -10,14 +10,19 @@ from app.repositories.node import NodeRepository
 from app.schemas.intersection import (
     ApproachesSyncRequest,
     IntersectionCreateRequest,
+    IntersectionApproachPriorityPatchRequest,
     IntersectionPatchRequest,
     MovementPatchRequest,
     MovementsSyncRequest,
+    PrioritySchemePutRequest,
+    SignGenerationRequest,
 )
 from app.services.approach_builder_service import ApproachBuilderService
 from app.services.errors import ConflictError, NotFoundError, ValidationError
 from app.services.movement_builder_service import MovementBuilderService
+from app.services.priority_scheme_service import PrioritySchemeService
 from app.services.project_service import ProjectService
+from app.services.sign_generation_service import SignGenerationService
 
 
 class IntersectionService:
@@ -33,6 +38,8 @@ class IntersectionService:
         project_service: ProjectService,
         approach_builder_service: ApproachBuilderService,
         movement_builder_service: MovementBuilderService,
+        priority_scheme_service: PrioritySchemeService,
+        sign_generation_service: SignGenerationService,
     ):
         self._intersection_repository = intersection_repository
         self._approach_repository = approach_repository
@@ -42,6 +49,8 @@ class IntersectionService:
         self._project_service = project_service
         self._approach_builder = approach_builder_service
         self._movement_builder = movement_builder_service
+        self._priority_scheme_service = priority_scheme_service
+        self._sign_generation_service = sign_generation_service
 
     def create(self, project_id: str, payload: IntersectionCreateRequest):
         self._project_service.get(project_id)
@@ -166,6 +175,48 @@ class IntersectionService:
         intersection = self.get(project_id, intersection_id)
         return self._movement_builder.validate_intersection(intersection)
 
+    def patch_approach_priority(
+        self,
+        project_id: str,
+        intersection_id: str,
+        approach_id: str,
+        payload: IntersectionApproachPriorityPatchRequest,
+    ):
+        return self._priority_scheme_service.patch_approach(
+            project_id=project_id,
+            intersection_id=intersection_id,
+            approach_id=approach_id,
+            payload=payload,
+        )
+
+    def put_priority_scheme(
+        self,
+        project_id: str,
+        intersection_id: str,
+        payload: PrioritySchemePutRequest,
+    ) -> dict[str, object]:
+        return self._priority_scheme_service.put_scheme(project_id, intersection_id, payload)
+
+    def get_priority_scheme(self, project_id: str, intersection_id: str) -> dict[str, object]:
+        return self._priority_scheme_service.get_scheme(project_id, intersection_id)
+
+    def priority_validation(self, project_id: str, intersection_id: str) -> dict[str, object]:
+        return self._priority_scheme_service.validate(project_id, intersection_id)
+
+    def generate_signs(
+        self,
+        project_id: str,
+        intersection_id: str,
+        payload: SignGenerationRequest,
+    ) -> dict[str, object]:
+        return self._sign_generation_service.generate(project_id, intersection_id, payload)
+
+    def list_signs(self, project_id: str, intersection_id: str):
+        return self._sign_generation_service.list_signs(project_id, intersection_id)
+
+    def export_hints(self, project_id: str, intersection_id: str) -> dict[str, object]:
+        return self._sign_generation_service.export_hints(project_id, intersection_id)
+
     def editor_card(self, project_id: str, intersection_id: str) -> dict[str, object]:
         intersection = self.get(project_id, intersection_id)
         node = intersection.node
@@ -173,6 +224,9 @@ class IntersectionService:
         approaches = self._approach_repository.list_by_intersection(intersection.id)
         movements = self._movement_builder.list_by_intersection(intersection.id)
         diagnostics = self._movement_builder.validate_intersection(intersection)
+        priority_scheme = self._priority_scheme_service.get_scheme(project_id, intersection.id)
+        generated_signs = self._sign_generation_service.list_signs(project_id, intersection.id)
+        export_hints = self._sign_generation_service.export_hints(project_id, intersection.id)
 
         return {
             "intersection": intersection,
@@ -182,4 +236,7 @@ class IntersectionService:
             "approaches": approaches,
             "movements": movements,
             "diagnostics": diagnostics,
+            "priority_scheme": priority_scheme,
+            "generated_signs": generated_signs,
+            "export_hints": export_hints,
         }

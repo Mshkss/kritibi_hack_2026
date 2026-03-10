@@ -370,6 +370,117 @@
             body: () => ({add_missing_only: false, allow_u_turns: false, uncontrolled: false}),
           },
           {
+            name: 'create_intersection_node_b', method: 'POST',
+            path: () => `/projects/${ctx.projectId}/intersections`,
+            expected: [201],
+            body: () => ({node_id: ctx.nodeBId, kind: 'crossroad', name: 'Smoke intersection', auto_sync: true}),
+            capture: (body) => { ctx.intersectionId = body.id; },
+          },
+          {
+            name: 'get_intersection', method: 'GET',
+            path: () => `/projects/${ctx.projectId}/intersections/${ctx.intersectionId}`,
+            expected: [200],
+          },
+          {
+            name: 'get_intersection_by_node', method: 'GET',
+            path: () => `/projects/${ctx.projectId}/nodes/${ctx.nodeBId}/intersection`,
+            expected: [200],
+          },
+          {
+            name: 'patch_intersection', method: 'PATCH',
+            path: () => `/projects/${ctx.projectId}/intersections/${ctx.intersectionId}`,
+            expected: [200],
+            body: () => ({name: 'Smoke intersection patched'}),
+          },
+          {
+            name: 'sync_approaches', method: 'POST',
+            path: () => `/projects/${ctx.projectId}/intersections/${ctx.intersectionId}/approaches/sync`,
+            expected: [200],
+            body: () => ({add_missing_only: true, remove_stale: false}),
+          },
+          {
+            name: 'list_approaches', method: 'GET',
+            path: () => `/projects/${ctx.projectId}/intersections/${ctx.intersectionId}/approaches`,
+            expected: [200],
+            capture: (body) => {
+              ctx.approaches = body;
+              ctx.approachId = body[0]?.id;
+            },
+          },
+          {
+            name: 'patch_approach_priority', method: 'PATCH',
+            path: () => `/projects/${ctx.projectId}/intersections/${ctx.intersectionId}/approaches/${ctx.approachId}`,
+            expected: [200],
+            body: () => ({role: 'main', priority_rank: 1}),
+          },
+          {
+            name: 'put_priority_scheme', method: 'PUT',
+            path: () => `/projects/${ctx.projectId}/intersections/${ctx.intersectionId}/priority-scheme`,
+            expected: [200],
+            body: () => ({
+              items: (ctx.approaches || []).map((item, idx) => ({
+                approach_id: item.id,
+                role: idx === 0 ? 'main' : 'secondary',
+                priority_rank: idx + 1,
+              })),
+              reset_missing: false,
+            }),
+          },
+          {
+            name: 'get_priority_scheme', method: 'GET',
+            path: () => `/projects/${ctx.projectId}/intersections/${ctx.intersectionId}/priority-scheme`,
+            expected: [200],
+          },
+          {
+            name: 'validate_priority_scheme', method: 'GET',
+            path: () => `/projects/${ctx.projectId}/intersections/${ctx.intersectionId}/priority-validation`,
+            expected: [200],
+          },
+          {
+            name: 'generate_signs', method: 'POST',
+            path: () => `/projects/${ctx.projectId}/intersections/${ctx.intersectionId}/signs/generate`,
+            expected: [200],
+            body: () => ({secondary_sign_type: 'yield'}),
+          },
+          {
+            name: 'list_signs', method: 'GET',
+            path: () => `/projects/${ctx.projectId}/intersections/${ctx.intersectionId}/signs`,
+            expected: [200],
+          },
+          {
+            name: 'get_export_hints', method: 'GET',
+            path: () => `/projects/${ctx.projectId}/intersections/${ctx.intersectionId}/export-hints`,
+            expected: [200],
+          },
+          {
+            name: 'sync_movements', method: 'POST',
+            path: () => `/projects/${ctx.projectId}/intersections/${ctx.intersectionId}/movements/sync`,
+            expected: [200],
+            body: () => ({add_missing_only: true, remove_stale: false, default_is_enabled: true}),
+          },
+          {
+            name: 'list_movements', method: 'GET',
+            path: () => `/projects/${ctx.projectId}/intersections/${ctx.intersectionId}/movements`,
+            expected: [200],
+            capture: (body) => { ctx.movementId = body[0]?.id; },
+          },
+          {
+            name: 'patch_movement', method: 'PATCH',
+            path: () => `/projects/${ctx.projectId}/intersections/${ctx.intersectionId}/movements/${ctx.movementId}`,
+            expected: [200],
+            body: () => ({is_enabled: false, movement_kind: 'straight'}),
+          },
+          {
+            name: 'intersection_editor', method: 'GET',
+            path: () => `/projects/${ctx.projectId}/intersections/${ctx.intersectionId}/editor`,
+            expected: [200],
+          },
+          {
+            name: 'intersection_validation', method: 'GET',
+            path: () => `/projects/${ctx.projectId}/intersections/${ctx.intersectionId}/validation`,
+            expected: [200],
+          },
+          {
             name: 'delete_connection_manual', method: 'DELETE',
             path: () => `/projects/${ctx.projectId}/connections/${ctx.connectionId}`,
             expected: [204],

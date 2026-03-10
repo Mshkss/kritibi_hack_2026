@@ -1,4 +1,4 @@
-"""Schemas for intersection editor layer."""
+"""Schemas for intersection editor, priority, and sign layers."""
 
 from datetime import datetime
 from typing import Literal
@@ -7,6 +7,9 @@ from pydantic import BaseModel, ConfigDict, Field
 
 
 IntersectionKind = Literal["crossroad", "roundabout"]
+ApproachRole = Literal["main", "secondary"]
+TrafficSignType = Literal["main_road", "yield", "stop"]
+SecondarySignPolicy = Literal["yield", "stop"]
 
 
 class IntersectionCreateRequest(BaseModel):
@@ -77,6 +80,8 @@ class IntersectionApproachResponse(BaseModel):
     incoming_edge_name: str | None = None
     order_index: int | None = None
     name: str | None = None
+    role: ApproachRole | None = None
+    priority_rank: int | None = None
     created_at: datetime
     updated_at: datetime
 
@@ -170,6 +175,123 @@ class IntersectionValidationResponse(BaseModel):
     errors: list[str]
 
 
+class IntersectionApproachPriorityPatchRequest(BaseModel):
+    """Patch role/rank for one approach."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    role: ApproachRole | None = None
+    priority_rank: int | None = Field(default=None, ge=0)
+
+
+class PrioritySchemeItem(BaseModel):
+    """Bulk priority item for one approach."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    approach_id: str
+    role: ApproachRole | None = None
+    priority_rank: int | None = Field(default=None, ge=0)
+
+
+class PrioritySchemePutRequest(BaseModel):
+    """Bulk update priority scheme by approaches."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    items: list[PrioritySchemeItem] = Field(min_length=1)
+    reset_missing: bool = False
+
+
+class PrioritySchemeSummary(BaseModel):
+    """Derived priority summary."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    main_count: int
+    secondary_count: int
+    unassigned_count: int
+    is_complete: bool
+    has_conflicts: bool
+
+
+class PrioritySchemeResponse(BaseModel):
+    """Priority scheme DTO."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    intersection_id: str
+    approaches: list[IntersectionApproachResponse]
+    summary: PrioritySchemeSummary
+
+
+class PrioritySchemeValidationResponse(BaseModel):
+    """Priority scheme validation DTO."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    intersection_id: str
+    is_valid: bool
+    is_complete: bool
+    missing_roles: list[str]
+    warnings: list[str]
+    errors: list[str]
+    exportable_as_priority_controlled: bool
+
+
+class SignGenerationRequest(BaseModel):
+    """Generated sign policy for priority scheme."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    secondary_sign_type: SecondarySignPolicy = "yield"
+
+
+class TrafficSignResponse(BaseModel):
+    """Traffic sign DTO."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    project_id: str
+    intersection_id: str | None = None
+    approach_id: str | None = None
+    node_id: str | None = None
+    edge_id: str | None = None
+    sign_type: TrafficSignType
+    generated: bool
+    metadata: dict[str, object] | None = None
+    created_at: datetime
+    updated_at: datetime
+
+
+class SignGenerationResponse(BaseModel):
+    """Generated sign upsert result."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    intersection_id: str
+    secondary_sign_type: SecondarySignPolicy
+    created_count: int
+    updated_count: int
+    deleted_count: int
+    signs: list[TrafficSignResponse]
+    diagnostics: list[str]
+
+
+class IntersectionExportHintsResponse(BaseModel):
+    """Derived export hints for intersection."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    intersection_id: str
+    node_type: str | None = None
+    priority_controlled: bool
+    requires_stop_signs: bool
+    requires_yield_signs: bool
+    notes: list[str]
+
+
 class IntersectionEditorResponse(BaseModel):
     """Full editor payload for intersection UI."""
 
@@ -182,3 +304,6 @@ class IntersectionEditorResponse(BaseModel):
     approaches: list[IntersectionApproachResponse]
     movements: list[MovementResponse]
     diagnostics: IntersectionValidationResponse
+    priority_scheme: PrioritySchemeResponse
+    generated_signs: list[TrafficSignResponse]
+    export_hints: IntersectionExportHintsResponse
