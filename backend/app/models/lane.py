@@ -27,6 +27,7 @@ class LaneModel(Base):
     edge_id: Mapped[str] = mapped_column(ForeignKey("edges.id", ondelete="CASCADE"), nullable=False)
     index: Mapped[int] = mapped_column(Integer, nullable=False)
     allow: Mapped[str | None] = mapped_column(Text, nullable=True)
+    disallow: Mapped[str | None] = mapped_column(Text, nullable=True)
     speed: Mapped[float | None] = mapped_column(Float, nullable=True)
     width: Mapped[float | None] = mapped_column(Float, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False, default=utcnow)

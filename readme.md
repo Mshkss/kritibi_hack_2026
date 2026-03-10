@@ -2,12 +2,13 @@
 
 Backend для системы проектирования интеллектуальной дорожно-транспортной сети.
 
-Текущий этап: **Network Constructor**.
+Текущий этап: **Network Constructor + Road Segment Editor**.
 
 Реализовано:
 - foundation (config/env, DB/session, Alembic, healthcheck, Project CRUD)
 - ядро дорожного графа: `Node`, `Edge`, `Lane`, `RoadType`
 - API для базового цикла конструктора сети
+- editor-операции для параметров участка (`Edge`) и полос (`Lane`)
 
 ## Local setup
 
@@ -74,10 +75,13 @@ docker compose -f infra/compose.yml exec backend alembic -c alembic.ini upgrade 
 - `POST /projects/{project_id}/edges/bidirectional`
 - `GET /projects/{project_id}/edges`
 - `GET /projects/{project_id}/edges/{edge_id}`
+- `GET /projects/{project_id}/edges/{edge_id}/editor`
 - `PATCH /projects/{project_id}/edges/{edge_id}`
 - `PATCH /projects/{project_id}/edges/{edge_id}/shape`
+- `POST /projects/{project_id}/edges/{edge_id}/recalculate-length`
 - `PUT /projects/{project_id}/edges/{edge_id}/lanes`
-- `PATCH /projects/{project_id}/edges/{edge_id}/road-type`
+- `PATCH /projects/{project_id}/edges/{edge_id}/lanes/{lane_id}`
+- `POST /projects/{project_id}/edges/{edge_id}/apply-road-type`
 
 ## Contracts
 

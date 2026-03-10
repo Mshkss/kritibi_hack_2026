@@ -11,8 +11,10 @@ from app.repositories.road_type import RoadTypeRepository
 from app.services.edge_service import EdgeService
 from app.services.geometry_service import GeometryService
 from app.services.graph_service import GraphService
+from app.services.lane_validation_service import LaneValidationService
 from app.services.node_service import NodeService
 from app.services.project_service import ProjectService
+from app.services.road_segment_editor_service import RoadSegmentEditorService
 from app.services.road_type_service import RoadTypeService
 
 
@@ -24,6 +26,10 @@ def get_project_service(db: Session = Depends(get_db)) -> ProjectService:
 
 def get_geometry_service() -> GeometryService:
     return GeometryService()
+
+
+def get_lane_validation_service() -> LaneValidationService:
+    return LaneValidationService()
 
 
 def get_node_service(
@@ -53,6 +59,7 @@ def get_edge_service(
     db: Session = Depends(get_db),
     project_service: ProjectService = Depends(get_project_service),
     geometry_service: GeometryService = Depends(get_geometry_service),
+    lane_validation_service: LaneValidationService = Depends(get_lane_validation_service),
 ) -> EdgeService:
     return EdgeService(
         edge_repository=EdgeRepository(db),
@@ -60,6 +67,7 @@ def get_edge_service(
         road_type_repository=RoadTypeRepository(db),
         project_service=project_service,
         geometry_service=geometry_service,
+        lane_validation_service=lane_validation_service,
     )
 
 
@@ -75,12 +83,30 @@ def get_graph_service(
     )
 
 
+def get_road_segment_editor_service(
+    db: Session = Depends(get_db),
+    project_service: ProjectService = Depends(get_project_service),
+    geometry_service: GeometryService = Depends(get_geometry_service),
+    lane_validation_service: LaneValidationService = Depends(get_lane_validation_service),
+) -> RoadSegmentEditorService:
+    return RoadSegmentEditorService(
+        edge_repository=EdgeRepository(db),
+        node_repository=NodeRepository(db),
+        road_type_repository=RoadTypeRepository(db),
+        project_service=project_service,
+        geometry_service=geometry_service,
+        lane_validation_service=lane_validation_service,
+    )
+
+
 __all__ = [
     "get_db",
     "get_edge_service",
     "get_geometry_service",
     "get_graph_service",
+    "get_lane_validation_service",
     "get_node_service",
     "get_project_service",
+    "get_road_segment_editor_service",
     "get_road_type_service",
 ]

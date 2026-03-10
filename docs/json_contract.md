@@ -1,9 +1,9 @@
-# JSON Contract (Stage: Network Constructor)
+# JSON Contract (Stage: Network + Road Segment Editor)
 
-Base URL: `/`
+Base URL: `/`  
 Content-Type: `application/json`
 
-## Error format
+## Error Format
 
 ```json
 {
@@ -12,14 +12,14 @@ Content-Type: `application/json`
 ```
 
 Типовые коды:
-- `400` validation/business rule error
-- `404` entity not found in project scope
-- `409` unique/dependency conflict
-- `422` FastAPI schema validation error
+- `400` бизнес-валидация
+- `404` сущность не найдена в скоупе проекта
+- `409` конфликт ограничений
+- `422` schema-level валидация FastAPI/Pydantic
 
-## Data formats
+## Shared DTO Fragments
 
-### Point / Shape
+### Point
 
 ```json
 {
@@ -28,7 +28,7 @@ Content-Type: `application/json`
 }
 ```
 
-`shape`:
+### Shape
 
 ```json
 [
@@ -37,336 +37,225 @@ Content-Type: `application/json`
 ]
 ```
 
-### Lane payload
+### Lane item
 
 ```json
 {
   "index": 0,
   "allow": "passenger bus",
+  "disallow": "tram",
   "speed": 13.9,
   "width": 3.5
 }
 ```
 
----
+`allow`/`disallow`:
+- хранятся строкой в БД (`TEXT`)
+- нормализуются в deduplicated space-separated вид
+- не могут содержать пересечение одних и тех же классов
 
-## Project
+## Base Network Endpoints (unchanged)
 
-### POST `/projects`
+- `POST /projects`
+- `GET /projects`
+- `GET /projects/{project_id}`
+- `PATCH /projects/{project_id}`
+- `DELETE /projects/{project_id}`
+- `GET /projects/{project_id}/network`
 
-Request:
+- `POST /projects/{project_id}/nodes`
+- `GET /projects/{project_id}/nodes`
+- `PATCH /projects/{project_id}/nodes/{node_id}`
+- `DELETE /projects/{project_id}/nodes/{node_id}`
 
-```json
-{
-  "name": "City center",
-  "description": "Network constructor demo"
-}
-```
+- `POST /projects/{project_id}/road-types`
+- `GET /projects/{project_id}/road-types`
+- `PATCH /projects/{project_id}/road-types/{road_type_id}`
 
-Response `201`:
+- `POST /projects/{project_id}/edges`
+- `POST /projects/{project_id}/edges/bidirectional`
+- `GET /projects/{project_id}/edges`
+- `GET /projects/{project_id}/edges/{edge_id}`
 
-```json
-{
-  "id": "uuid",
-  "name": "City center",
-  "description": "Network constructor demo",
-  "created_at": "2026-03-10T12:00:00Z",
-  "updated_at": "2026-03-10T12:00:00Z"
-}
-```
+## Road Segment Editor Endpoints
 
-### GET `/projects`
+## GET `/projects/{project_id}/edges/{edge_id}/editor`
 
-Response `200`: список `Project[]`.
-
-### GET `/projects/{project_id}`
-
-Response `200`: `Project` object (как выше).
-
-### GET `/projects/{project_id}/network`
+Карточка редактирования участка.
 
 Response `200`:
 
 ```json
 {
-  "project": {"id": "uuid", "name": "City center", "description": null, "created_at": "...", "updated_at": "..."},
-  "nodes": [],
-  "road_types": [],
-  "edges": []
+  "edge": {
+    "id": "uuid",
+    "project_id": "uuid",
+    "code": "E1",
+    "from_node_id": "uuid",
+    "to_node_id": "uuid",
+    "road_type_id": "uuid",
+    "name": "Main eastbound",
+    "speed": 13.9,
+    "priority": 3,
+    "length": 120.5,
+    "width": 3.5,
+    "sidewalk_width": 1.5,
+    "shape": [{"x": 10.0, "y": 20.0}, {"x": 15.0, "y": 25.0}],
+    "lanes": [
+      {
+        "id": "uuid",
+        "edge_id": "uuid",
+        "index": 0,
+        "allow": "passenger",
+        "disallow": "tram",
+        "speed": 13.9,
+        "width": 3.5,
+        "created_at": "...",
+        "updated_at": "..."
+      }
+    ],
+    "num_lanes": 1,
+    "created_at": "...",
+    "updated_at": "..."
+  },
+  "road_type": {
+    "id": "uuid",
+    "project_id": "uuid",
+    "code": "urban_main",
+    "name": "Urban main",
+    "num_lanes": 2,
+    "speed": 13.9,
+    "priority": 3,
+    "width": 3.5,
+    "sidewalk_width": 1.5,
+    "created_at": "...",
+    "updated_at": "..."
+  }
 }
 ```
 
----
+## PATCH `/projects/{project_id}/edges/{edge_id}`
 
-## Nodes
-
-### POST `/projects/{project_id}/nodes`
+Редактирование свойств участка (`EdgePatchRequest`).
 
 Request:
 
 ```json
 {
-  "code": "N1",
-  "x": 100.0,
-  "y": 200.0,
-  "type": "priority"
-}
-```
-
-Response `201`:
-
-```json
-{
-  "id": "uuid",
-  "project_id": "uuid",
-  "code": "N1",
-  "x": 100.0,
-  "y": 200.0,
-  "type": "priority",
-  "created_at": "...",
-  "updated_at": "..."
-}
-```
-
-### GET `/projects/{project_id}/nodes`
-
-Response `200`: `Node[]`.
-
-### PATCH `/projects/{project_id}/nodes/{node_id}`
-
-Request:
-
-```json
-{
-  "x": 110.0,
-  "y": 205.0
-}
-```
-
-Response `200`: updated `Node`.
-
-Notes:
-- при перемещении `Node` backend автоматически корректирует концы связанных `Edge.shape`.
-
-### DELETE `/projects/{project_id}/nodes/{node_id}`
-
-Response `204`.
-
-Conflict `409` example:
-
-```json
-{
-  "detail": "Node cannot be deleted while it is referenced by edges"
-}
-```
-
----
-
-## Road Types
-
-### POST `/projects/{project_id}/road-types`
-
-Request:
-
-```json
-{
-  "code": "urban_main",
-  "name": "Urban main road",
-  "num_lanes": 2,
-  "speed": 13.9,
-  "priority": 3,
-  "width": 3.5,
-  "sidewalk_width": 1.5
-}
-```
-
-Response `201`:
-
-```json
-{
-  "id": "uuid",
-  "project_id": "uuid",
-  "code": "urban_main",
-  "name": "Urban main road",
-  "num_lanes": 2,
-  "speed": 13.9,
-  "priority": 3,
-  "width": 3.5,
-  "sidewalk_width": 1.5,
-  "created_at": "...",
-  "updated_at": "..."
-}
-```
-
-### GET `/projects/{project_id}/road-types`
-
-Response `200`: `RoadType[]`.
-
-### PATCH `/projects/{project_id}/road-types/{road_type_id}`
-
-Request:
-
-```json
-{
-  "speed": 16.7,
-  "priority": 4
-}
-```
-
-Response `200`: updated `RoadType`.
-
----
-
-## Edges
-
-### POST `/projects/{project_id}/edges`
-
-Create directed edge.
-
-Request:
-
-```json
-{
-  "code": "E1",
-  "from_node_id": "uuid",
-  "to_node_id": "uuid",
-  "road_type_id": "uuid",
-  "name": "Main eastbound",
-  "shape": [
-    {"x": 100.0, "y": 200.0},
-    {"x": 130.0, "y": 210.0}
-  ],
-  "lanes": [
-    {"index": 0, "allow": "passenger", "speed": 13.9, "width": 3.5}
-  ]
-}
-```
-
-Response `201`:
-
-```json
-{
-  "id": "uuid",
-  "project_id": "uuid",
-  "code": "E1",
-  "from_node_id": "uuid",
-  "to_node_id": "uuid",
-  "road_type_id": "uuid",
-  "name": "Main eastbound",
-  "speed": 13.9,
-  "priority": 3,
-  "length": 31.62,
-  "width": 3.5,
-  "sidewalk_width": 1.5,
-  "shape": [
-    {"x": 100.0, "y": 200.0},
-    {"x": 130.0, "y": 210.0}
-  ],
-  "lanes": [
-    {"id": "uuid", "edge_id": "uuid", "index": 0, "allow": "passenger", "speed": 13.9, "width": 3.5, "created_at": "...", "updated_at": "..."}
-  ],
-  "num_lanes": 1,
-  "created_at": "...",
-  "updated_at": "..."
-}
-```
-
-### POST `/projects/{project_id}/edges/bidirectional`
-
-Create two opposite directed edges.
-
-Request:
-
-```json
-{
-  "forward_code": "E1_fwd",
-  "reverse_code": "E1_rev",
-  "from_node_id": "uuid",
-  "to_node_id": "uuid",
-  "road_type_id": "uuid",
-  "shape": [
-    {"x": 100.0, "y": 200.0},
-    {"x": 130.0, "y": 210.0}
-  ],
-  "lanes": [
-    {"index": 0, "allow": "passenger", "speed": 13.9, "width": 3.5}
-  ]
-}
-```
-
-Response `201`: `Edge[]` (2 элемента).
-
-### GET `/projects/{project_id}/edges`
-
-Response `200`: `Edge[]`.
-
-### GET `/projects/{project_id}/edges/{edge_id}`
-
-Response `200`: `Edge`.
-
-### PATCH `/projects/{project_id}/edges/{edge_id}`
-
-Request:
-
-```json
-{
-  "name": "Updated name",
-  "speed": 12.5
-}
-```
-
-Response `200`: updated `Edge`.
-
-### PATCH `/projects/{project_id}/edges/{edge_id}/shape`
-
-Request:
-
-```json
-{
-  "shape": [
-    {"x": 100.0, "y": 200.0},
-    {"x": 120.0, "y": 205.0},
-    {"x": 130.0, "y": 210.0}
-  ]
-}
-```
-
-Response `200`: updated `Edge` (`length` пересчитан).
-
-### PUT `/projects/{project_id}/edges/{edge_id}/lanes`
-
-Полная замена массива полос.
-
-Request:
-
-```json
-[
-  {"index": 0, "allow": "passenger", "speed": 13.9, "width": 3.5},
-  {"index": 1, "allow": "bus", "speed": 13.9, "width": 3.5}
-]
-```
-
-Response `200`: updated `Edge`.
-
-### PATCH `/projects/{project_id}/edges/{edge_id}/road-type`
-
-Применяет defaults `RoadType` к фактическим полям edge (snapshot semantics).
-
-Request:
-
-```json
-{
+  "name": "Updated segment",
+  "speed": 12.5,
+  "priority": 4,
+  "length": 130.0,
+  "width": 3.4,
+  "sidewalk_width": 1.2,
   "road_type_id": "uuid"
 }
 ```
 
-Response `200`: updated `Edge`.
+Response `200`: `Edge`.
 
----
+`length` semantics:
+- если PATCH содержит `shape` и не содержит `length`, длина пересчитывается.
+- если PATCH содержит `length`, значение считается явным override.
 
-## Typical error scenarios
+## PATCH `/projects/{project_id}/edges/{edge_id}/shape`
 
-### `400` (shape invalid)
+Request:
+
+```json
+{
+  "shape": [
+    {"x": 10.0, "y": 20.0},
+    {"x": 12.0, "y": 21.0},
+    {"x": 15.0, "y": 25.0}
+  ]
+}
+```
+
+Response `200`: `Edge` (длина пересчитана автоматически).
+
+## POST `/projects/{project_id}/edges/{edge_id}/recalculate-length`
+
+Явный пересчет длины по текущему `shape` + синхронизация крайних точек по node-coordinates.
+
+Request body: пустой.
+
+Response `200`: `Edge`.
+
+## PUT `/projects/{project_id}/edges/{edge_id}/lanes`
+
+Полная замена списка полос (`LaneReplaceListRequest`).
+
+Request:
+
+```json
+{
+  "lanes": [
+    {"index": 0, "allow": "passenger", "disallow": "tram", "speed": 12.0, "width": 3.0},
+    {"index": 1, "allow": "bus", "disallow": "passenger", "speed": 11.0, "width": 3.2}
+  ]
+}
+```
+
+Response `200`: `Edge`.
+
+Правила:
+- список не пустой,
+- индексы уникальны,
+- `index >= 0`.
+
+## PATCH `/projects/{project_id}/edges/{edge_id}/lanes/{lane_id}`
+
+Частичное изменение одной полосы (`LanePatchRequest`).
+
+Request:
+
+```json
+{
+  "index": 1,
+  "allow": "bus taxi",
+  "disallow": "passenger",
+  "speed": 10.5,
+  "width": 3.2
+}
+```
+
+Response `200`: `Edge`.
+
+Правила:
+- нельзя получить конфликт `allow`/`disallow`,
+- при изменении `index` проверяется уникальность внутри `edge`.
+
+## POST `/projects/{project_id}/edges/{edge_id}/apply-road-type`
+
+Применяет `RoadType` к edge по snapshot semantics (`ApplyRoadTypeRequest`).
+
+Request:
+
+```json
+{
+  "road_type_id": "uuid",
+  "speed": null,
+  "priority": null,
+  "width": null,
+  "sidewalk_width": null,
+  "lane_speed": null,
+  "lane_width": 3.3,
+  "apply_to_lanes": true
+}
+```
+
+Response `200`: `Edge`.
+
+Семантика:
+- `road_type_id` записывается в edge.
+- edge-поля получают defaults road type, если не передан override.
+- override-поля из request имеют приоритет.
+- `apply_to_lanes=true` обновляет lane-level `speed/width`, сохраняя `allow/disallow`.
+
+## Validation / Error Cases
+
+`400` invalid shape:
 
 ```json
 {
@@ -374,7 +263,15 @@ Response `200`: updated `Edge`.
 }
 ```
 
-### `400` (lane index invalid)
+`400` lane conflict:
+
+```json
+{
+  "detail": "allow/disallow conflict for classes: bus"
+}
+```
+
+`400` lane index invalid:
 
 ```json
 {
@@ -382,15 +279,23 @@ Response `200`: updated `Edge`.
 }
 ```
 
-### `404` (entity not in project)
+`404` edge not in project:
 
 ```json
 {
-  "detail": "Node '...' not found in project '...'"
+  "detail": "Edge '...' not found in project '...'"
 }
 ```
 
-### `409` (unique code conflict)
+`404` lane not in edge:
+
+```json
+{
+  "detail": "Lane '...' not found in edge '...'"
+}
+```
+
+`409` code uniqueness conflict:
 
 ```json
 {
