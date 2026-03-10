@@ -363,6 +363,8 @@ const parseGenericOsm = (xmlDoc: XMLDocument): NetworkState => {
       });
 
       Object.values(nodesByLaneIdx).forEach(nodesInLane => {
+        // Intersection connectors may be almost zero-length after lane offset projection.
+        // Runtime vehicle simulation must still preserve and traverse these hidden links.
         for (let i = 0; i < nodesInLane.length; i++) {
           for (let j = i + 1; j < nodesInLane.length; j++) {
             const edgeId = uuidv4();

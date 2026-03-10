@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { MapContainer, TileLayer, Marker, Polyline, Pane, useMapEvents, Tooltip, useMap } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
@@ -12,6 +12,21 @@ import {
   buildLaneNetworkOsmExport,
   downloadTextFile,
 } from '../utils/networkExport';
+import {
+  NETWORK_EDITOR_AUTOSAVE_DEBOUNCE_MS,
+  NETWORK_EDITOR_HISTORY_LIMIT,
+  NETWORK_EDITOR_STORAGE_KEY,
+  appendHistoryState,
+  createInitialHistoryState,
+  persistHistoryStateWithFallback,
+  type EditorHistoryState,
+} from '../utils/networkStatePersistence';
+import {
+  advanceCar,
+  buildSimulationGraph,
+  reconcileCars,
+  type CarState,
+} from '../utils/vehicleSimulation';
 
 // Fix leaflet default icon issue
 delete (L.Icon.Default.prototype as any)._getIconUrl;
@@ -93,6 +108,13 @@ const getDirectionArrowIcon = (angleDeg: number, zoom: number) => {
     iconAnchor: [anchorX, 0]
   });
 };
+
+const carIcon = L.divIcon({
+  className: 'custom-car-icon',
+  html: '<div style="background-color: #16a34a; width: 10px; height: 16px; border-radius: 5px; border: 2px solid white; box-shadow: 0 0 4px rgba(0,0,0,0.55);"></div>',
+  iconSize: [10, 16],
+  iconAnchor: [5, 8]
+});
 
 const INTERSECTION_CONNECTION_NAMES = new Set(['Intersection Connection', 'Соединение перекрёстка']);
 const isIntersectionConnection = (edge: Edge) =>
@@ -299,25 +321,108 @@ const getIconForNode = (node: Node, isSelected: boolean) => {
 
 type Mode = 'SELECT' | 'ADD_NODE' | 'ADD_TRAFFIC_LIGHT' | 'ADD_CROSSING' | 'ADD_BUS_STOP' | 'ADD_SPEED_LIMIT' | 'ADD_EDGE' | 'DELETE';
 
+const EMPTY_NETWORK_STATE = normalizeNetworkState({ nodes: {}, edges: {} });
+
+const getMapCenterFromState = (networkState: NetworkState): [number, number] | null => {
+  const nodes = Object.values(networkState.nodes);
+  if (nodes.length === 0) return null;
+
+  const avgLat = nodes.reduce((sum, node) => sum + node.lat, 0) / nodes.length;
+  const avgLng = nodes.reduce((sum, node) => sum + node.lng, 0) / nodes.length;
+  return [avgLat, avgLng];
+};
+
 export function MapEditor() {
-  const [history, setHistory] = useState<NetworkState[]>([normalizeNetworkState({ nodes: {}, edges: {} })]);
-  const [currentIndex, setCurrentIndex] = useState(0);
-  const [mapCenter, setMapCenter] = useState<[number, number] | null>(null);
-  
+  const initialHistoryState = useMemo<EditorHistoryState>(
+    () =>
+      createInitialHistoryState(
+        NETWORK_EDITOR_STORAGE_KEY,
+        EMPTY_NETWORK_STATE,
+        normalizeNetworkState,
+      ),
+    [],
+  );
+  const [historyState, setHistoryState] = useState<EditorHistoryState>(initialHistoryState);
+  const [mapCenter, setMapCenter] = useState<[number, number] | null>(() =>
+    getMapCenterFromState(
+      initialHistoryState.history[initialHistoryState.currentIndex] ?? EMPTY_NETWORK_STATE,
+    ),
+  );
+  const saveTimeoutRef = useRef<number | null>(null);
+
+  const { history, currentIndex } = historyState;
   const state = history[currentIndex];
-  
-  const pushState = (newState: NetworkState) => {
+
+  const pushState = useCallback((newState: NetworkState) => {
     const normalizedState = normalizeNetworkState(newState);
-    setHistory(prev => {
-      const newHistory = prev.slice(0, currentIndex + 1);
-      newHistory.push(normalizedState);
-      return newHistory;
+    setHistoryState((prev) =>
+      appendHistoryState({
+        history: prev.history,
+        currentIndex: prev.currentIndex,
+        nextState: normalizedState,
+        maxHistory: NETWORK_EDITOR_HISTORY_LIMIT,
+      }),
+    );
+  }, []);
+
+  const undo = useCallback(() => {
+    setHistoryState((prev) => ({
+      ...prev,
+      currentIndex: Math.max(0, prev.currentIndex - 1),
+    }));
+  }, []);
+
+  const redo = useCallback(() => {
+    setHistoryState((prev) => ({
+      ...prev,
+      currentIndex: Math.min(prev.history.length - 1, prev.currentIndex + 1),
+    }));
+  }, []);
+
+  const flushPersistedState = useCallback(() => {
+    persistHistoryStateWithFallback({
+      storageKey: NETWORK_EDITOR_STORAGE_KEY,
+      history,
+      currentIndex,
     });
-    setCurrentIndex(prev => prev + 1);
-  };
-  
-  const undo = () => setCurrentIndex(prev => Math.max(0, prev - 1));
-  const redo = () => setCurrentIndex(prev => Math.min(history.length - 1, prev + 1));
+  }, [history, currentIndex]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    if (saveTimeoutRef.current !== null) {
+      window.clearTimeout(saveTimeoutRef.current);
+    }
+
+    saveTimeoutRef.current = window.setTimeout(() => {
+      flushPersistedState();
+      saveTimeoutRef.current = null;
+    }, NETWORK_EDITOR_AUTOSAVE_DEBOUNCE_MS);
+
+    return () => {
+      if (saveTimeoutRef.current !== null) {
+        window.clearTimeout(saveTimeoutRef.current);
+        saveTimeoutRef.current = null;
+      }
+    };
+  }, [flushPersistedState]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    const handleBeforeUnload = () => {
+      if (saveTimeoutRef.current !== null) {
+        window.clearTimeout(saveTimeoutRef.current);
+        saveTimeoutRef.current = null;
+      }
+      flushPersistedState();
+    };
+
+    window.addEventListener('beforeunload', handleBeforeUnload);
+    return () => {
+      window.removeEventListener('beforeunload', handleBeforeUnload);
+    };
+  }, [flushPersistedState]);
   
   const [mode, setMode] = useState<Mode>('SELECT');
   const [currentZoom, setCurrentZoom] = useState(13);
@@ -327,6 +432,12 @@ export function MapEditor() {
   const [speedLimitDialogPosition, setSpeedLimitDialogPosition] = useState<{ lat: number; lng: number } | null>(null);
   const [speedLimitInput, setSpeedLimitInput] = useState('40');
   const [speedLimitInputError, setSpeedLimitInputError] = useState('');
+  const [targetCarCount, setTargetCarCount] = useState(0);
+  const [carCountInput, setCarCountInput] = useState('25');
+  const [carInputError, setCarInputError] = useState('');
+  const [cars, setCars] = useState<CarState[]>([]);
+  const simulationRafRef = useRef<number | null>(null);
+  const simulationLastTsRef = useRef<number | null>(null);
 
   const nodeDirectionAngles = useMemo(() => {
     const angles: Record<string, number> = {};
@@ -457,6 +568,77 @@ export function MapEditor() {
   const zebraScale = Math.max(0.45, Math.min(1, (currentZoom - 9) / 4));
   const zebraOuterWeight = Math.max(2, 4 * zebraScale);
   const zebraInnerWeight = Math.max(1, 2.6 * zebraScale);
+
+  const simulationGraph = useMemo(
+    () =>
+      buildSimulationGraph(state, {
+        canSpawnOnEdge: (edge) => !isIntersectionConnection(edge),
+      }),
+    [state],
+  );
+
+  useEffect(() => {
+    setCars((prevCars) =>
+      reconcileCars({
+        cars: prevCars,
+        targetCount: targetCarCount,
+        graph: simulationGraph,
+        createCarId: () => uuidv4(),
+      }),
+    );
+  }, [simulationGraph, targetCarCount]);
+
+  useEffect(() => {
+    if (typeof window === 'undefined') return;
+
+    if (simulationRafRef.current !== null) {
+      window.cancelAnimationFrame(simulationRafRef.current);
+      simulationRafRef.current = null;
+    }
+    simulationLastTsRef.current = null;
+
+    if (targetCarCount <= 0 || simulationGraph.edgeIds.length === 0 || cars.length === 0) return;
+
+    const animate = (timestamp: number) => {
+      if (simulationLastTsRef.current === null) {
+        simulationLastTsRef.current = timestamp;
+        simulationRafRef.current = window.requestAnimationFrame(animate);
+        return;
+      }
+
+      const dtSeconds = Math.min(
+        0.25,
+        Math.max(0, (timestamp - simulationLastTsRef.current) / 1000),
+      );
+      simulationLastTsRef.current = timestamp;
+
+      if (dtSeconds > 0) {
+        setCars((prevCars) =>
+          prevCars
+            .map((car) =>
+              advanceCar({
+                car,
+                graph: simulationGraph,
+                dtSeconds,
+              }),
+            )
+            .filter((car): car is CarState => Boolean(car)),
+        );
+      }
+
+      simulationRafRef.current = window.requestAnimationFrame(animate);
+    };
+
+    simulationRafRef.current = window.requestAnimationFrame(animate);
+
+    return () => {
+      if (simulationRafRef.current !== null) {
+        window.cancelAnimationFrame(simulationRafRef.current);
+        simulationRafRef.current = null;
+      }
+      simulationLastTsRef.current = null;
+    };
+  }, [cars.length, simulationGraph, targetCarCount]);
   
   const handleMapClick = (e: L.LeafletMouseEvent) => {
     if (mode === 'ADD_SPEED_LIMIT') {
@@ -719,6 +901,28 @@ export function MapEditor() {
       }
     });
   };
+
+  const handleCarCountInputChange = (value: string) => {
+    setCarCountInput(value);
+    if (carInputError) setCarInputError('');
+  };
+
+  const applyCarCount = () => {
+    const parsed = Number.parseInt(carCountInput.trim(), 10);
+    if (!Number.isInteger(parsed) || parsed < 1 || parsed > 100) {
+      setCarInputError('Введите целое число от 1 до 100.');
+      return;
+    }
+
+    setCarInputError('');
+    setTargetCarCount(parsed);
+  };
+
+  const clearCars = () => {
+    setCars([]);
+    setTargetCarCount(0);
+    setCarInputError('');
+  };
   
   const MapEvents = () => {
     useMapEvents({
@@ -744,6 +948,12 @@ export function MapEditor() {
         validationResult={validationResult}
         selectedEdge={selectedEdgeId ? state.edges[selectedEdgeId] : null}
         toggleOneWay={toggleOneWay}
+        carCountInput={carCountInput}
+        onCarCountInputChange={handleCarCountInputChange}
+        onApplyCarCount={applyCarCount}
+        onClearCars={clearCars}
+        activeCarCount={cars.length}
+        carCountError={carInputError}
       />
       
       <div className="flex-1 relative">
@@ -782,7 +992,29 @@ export function MapEditor() {
             const isIntersectionConnectionEdge = isIntersectionConnection(edge);
             const speedLimit = edge.speedLimit;
 
-            if (isIntersectionConnectionEdge) return null;
+            if (isIntersectionConnectionEdge) {
+              return (
+                <React.Fragment key={edge.id}>
+                  <Polyline
+                    positions={positions}
+                    color="#0f172a"
+                    weight={4}
+                    opacity={0.18}
+                    pathOptions={{ interactive: false }}
+                  />
+                  <Polyline
+                    positions={positions}
+                    color="#06b6d4"
+                    weight={2}
+                    opacity={0.9}
+                    pathOptions={{
+                      dashArray: '5, 7',
+                      interactive: false,
+                    }}
+                  />
+                </React.Fragment>
+              );
+            }
             
             return (
               <React.Fragment key={edge.id}>
@@ -865,6 +1097,18 @@ export function MapEditor() {
               </React.Fragment>
             ))}
           </Pane>
+
+          <Pane name="vehicle-overlay-pane" style={{ zIndex: 710 }}>
+            {cars.map((car) => (
+              <Marker
+                key={car.id}
+                position={[car.lat, car.lng]}
+                icon={carIcon}
+                interactive={false}
+                keyboard={false}
+              />
+            ))}
+          </Pane>
           
           {(Object.values(state.nodes) as Node[]).map(node => (
             <React.Fragment key={node.id}>
@@ -903,6 +1147,9 @@ export function MapEditor() {
             {mode === 'ADD_SPEED_LIMIT' && "Кликните по карте, чтобы поставить знак ограничения, затем введите км/ч в окне."}
             {mode === 'ADD_EDGE' && "Кликните по одному узлу, затем по другому, чтобы соединить их."}
             {mode === 'DELETE' && "Кликните по узлам/рёбрам/точкам, чтобы удалить."}
+          </p>
+          <p className="mt-1 text-xs font-medium text-cyan-700">
+            Dashed cyan lines show hidden intersection links.
           </p>
         </div>
 
