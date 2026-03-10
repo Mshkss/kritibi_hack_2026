@@ -1,18 +1,29 @@
 """Pydantic schemas for Project."""
 
-from typing import Optional
+from datetime import datetime
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class ProjectCreate(BaseModel):
-    code: str
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=255)
+    description: str | None = Field(default=None, max_length=4096)
 
 
 class ProjectUpdate(BaseModel):
-    code: Optional[str] = None
+    model_config = ConfigDict(extra="forbid")
+
+    name: str | None = Field(default=None, min_length=1, max_length=255)
+    description: str | None = Field(default=None, max_length=4096)
 
 
 class ProjectRead(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
     id: str
-    code: str
+    name: str
+    description: str | None = None
+    created_at: datetime
+    updated_at: datetime
