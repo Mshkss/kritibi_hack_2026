@@ -220,12 +220,19 @@ type SidebarProps = {
   validationResult: ValidationResult | null;
   selectedEdge: Edge | null;
   toggleOneWay: (id: string) => void;
+  carCountInput: string;
+  onCarCountInputChange: (value: string) => void;
+  onApplyCarCount: () => void;
+  onClearCars: () => void;
+  activeCarCount: number;
+  carCountError: string;
 };
 
 export function Sidebar({ 
   mode, setMode, canUndo, canRedo, undo, redo, 
   onFileUpload, onExportJson, onExportOsm, onValidate, validationResult,
-  selectedEdge, toggleOneWay
+  selectedEdge, toggleOneWay,
+  carCountInput, onCarCountInputChange, onApplyCarCount, onClearCars, activeCarCount, carCountError
 }: SidebarProps) {
   
   const tools = [
@@ -318,6 +325,42 @@ export function Sidebar({
             <Download className="w-5 h-5 mr-2" />
             Export OSM
           </button>
+        </div>
+
+        <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Поток машин</h2>
+        <div className="mb-6 p-3 bg-slate-50 rounded-md border border-slate-200">
+          <label className="block text-xs font-medium text-gray-600 mb-2">Количество машин (1-100)</label>
+          <div className="flex items-center gap-2">
+            <input
+              type="number"
+              min={1}
+              max={100}
+              step={1}
+              value={carCountInput}
+              onChange={(e) => onCarCountInputChange(e.target.value)}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') onApplyCarCount();
+              }}
+              className="w-full rounded-md border border-gray-300 px-2 py-1.5 text-sm text-gray-800 focus:outline-none focus:ring-2 focus:ring-blue-200 focus:border-blue-400"
+              placeholder="например, 25"
+            />
+            <button
+              onClick={onApplyCarCount}
+              className="px-3 py-1.5 rounded-md text-sm font-medium text-white bg-blue-600 hover:bg-blue-700"
+            >
+              Применить
+            </button>
+          </div>
+          <button
+            onClick={onClearCars}
+            className="mt-2 w-full px-3 py-1.5 rounded-md text-sm font-medium text-white bg-rose-600 hover:bg-rose-700"
+          >
+            Удалить машины
+          </button>
+          {carCountError && (
+            <p className="mt-2 text-xs text-red-600">{carCountError}</p>
+          )}
+          <p className="mt-2 text-xs text-gray-600">Сейчас машин: {activeCarCount}</p>
         </div>
         
         {selectedEdge && (

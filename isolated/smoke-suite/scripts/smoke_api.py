@@ -17,10 +17,10 @@ from typing import Any, Callable
 class Step:
     name: str
     method: str
-    path: Callable[[dict[str, str]], str]
+    path: Callable[[dict[str, Any]], str]
     expected_statuses: tuple[int, ...]
-    body: Callable[[dict[str, str]], dict[str, Any]] | None = None
-    capture: Callable[[dict[str, str], Any], None] | None = None
+    body: Callable[[dict[str, Any]], dict[str, Any]] | None = None
+    capture: Callable[[dict[str, Any], Any], None] | None = None
 
 
 def http_request(base_url: str, method: str, path: str, body: dict[str, Any] | None) -> tuple[int, Any]:
@@ -55,7 +55,7 @@ def http_request(base_url: str, method: str, path: str, body: dict[str, Any] | N
 
 
 def build_steps(suffix: str) -> list[Step]:
-    def create_edge_body(ctx: dict[str, str]) -> dict[str, Any]:
+    def create_edge_body(ctx: dict[str, Any]) -> dict[str, Any]:
         return {
             "code": f"E-{suffix}",
             "from_node_id": ctx["node_a_id"],
@@ -357,6 +357,224 @@ def build_steps(suffix: str) -> list[Step]:
             body=lambda _ctx: {"add_missing_only": False, "allow_u_turns": False, "uncontrolled": False},
         ),
         Step(
+            name="create_intersection_node_b",
+            method="POST",
+            path=lambda ctx: f"/projects/{ctx['project_id']}/intersections",
+            expected_statuses=(201,),
+            body=lambda ctx: {
+                "node_id": ctx["node_b_id"],
+                "kind": "crossroad",
+                "name": "Smoke intersection",
+                "auto_sync": True,
+            },
+            capture=lambda ctx, body: ctx.update({"intersection_id": body["id"]}),
+        ),
+        Step(
+            name="get_intersection",
+            method="GET",
+            path=lambda ctx: f"/projects/{ctx['project_id']}/intersections/{ctx['intersection_id']}",
+            expected_statuses=(200,),
+        ),
+        Step(
+            name="get_intersection_by_node",
+            method="GET",
+            path=lambda ctx: f"/projects/{ctx['project_id']}/nodes/{ctx['node_b_id']}/intersection",
+            expected_statuses=(200,),
+        ),
+        Step(
+            name="patch_intersection",
+            method="PATCH",
+            path=lambda ctx: f"/projects/{ctx['project_id']}/intersections/{ctx['intersection_id']}",
+            expected_statuses=(200,),
+            body=lambda _ctx: {"name": "Smoke intersection patched"},
+        ),
+        Step(
+            name="sync_approaches",
+            method="POST",
+            path=lambda ctx: f"/projects/{ctx['project_id']}/intersections/{ctx['intersection_id']}/approaches/sync",
+            expected_statuses=(200,),
+            body=lambda _ctx: {"add_missing_only": True, "remove_stale": False},
+        ),
+        Step(
+            name="list_approaches",
+            method="GET",
+            path=lambda ctx: f"/projects/{ctx['project_id']}/intersections/{ctx['intersection_id']}/approaches",
+            expected_statuses=(200,),
+            capture=lambda ctx, body: ctx.update(
+                {
+                    "approach_id": body[0]["id"] if body else "",
+                    "approaches_json": json.dumps(body),
+                }
+            ),
+        ),
+        Step(
+            name="pedestrian_crossing_sides",
+            method="GET",
+            path=lambda ctx: f"/projects/{ctx['project_id']}/intersections/{ctx['intersection_id']}/pedestrian-crossing-sides",
+            expected_statuses=(200,),
+            capture=lambda ctx, body: ctx.update(
+                {
+                    "pedestrian_side_key": (body.get("candidate_sides") or [{}])[0].get("side_key", ""),
+                }
+            ),
+        ),
+        Step(
+            name="create_pedestrian_crossing",
+            method="POST",
+            path=lambda ctx: f"/projects/{ctx['project_id']}/intersections/{ctx['intersection_id']}/pedestrian-crossings",
+            expected_statuses=(201,),
+            body=lambda ctx: {
+                "approach_id": ctx["approach_id"],
+                "side_key": f"approach:{ctx['approach_id']}",
+                "is_enabled": True,
+                "name": "Crosswalk A",
+                "crossing_kind": "zebra",
+            },
+            capture=lambda ctx, body: ctx.update({"pedestrian_crossing_id": body["id"]}),
+        ),
+        Step(
+            name="list_pedestrian_crossings",
+            method="GET",
+            path=lambda ctx: f"/projects/{ctx['project_id']}/intersections/{ctx['intersection_id']}/pedestrian-crossings",
+            expected_statuses=(200,),
+        ),
+        Step(
+            name="get_pedestrian_crossing",
+            method="GET",
+            path=lambda ctx: f"/projects/{ctx['project_id']}/intersections/{ctx['intersection_id']}/pedestrian-crossings/{ctx['pedestrian_crossing_id']}",
+            expected_statuses=(200,),
+        ),
+        Step(
+            name="create_pedestrian_crossing_duplicate_side",
+            method="POST",
+            path=lambda ctx: f"/projects/{ctx['project_id']}/intersections/{ctx['intersection_id']}/pedestrian-crossings",
+            expected_statuses=(409,),
+            body=lambda ctx: {
+                "approach_id": ctx["approach_id"],
+                "side_key": f"approach:{ctx['approach_id']}",
+                "is_enabled": True,
+                "name": "Duplicate crossing",
+                "crossing_kind": "signalized",
+            },
+        ),
+        Step(
+            name="create_pedestrian_crossing_invalid_side",
+            method="POST",
+            path=lambda ctx: f"/projects/{ctx['project_id']}/intersections/{ctx['intersection_id']}/pedestrian-crossings",
+            expected_statuses=(400,),
+            body=lambda _ctx: {
+                "side_key": "approach:not-a-real-approach",
+                "is_enabled": True,
+                "name": "Invalid side crossing",
+                "crossing_kind": "zebra",
+            },
+        ),
+        Step(
+            name="patch_pedestrian_crossing_disable",
+            method="PATCH",
+            path=lambda ctx: f"/projects/{ctx['project_id']}/intersections/{ctx['intersection_id']}/pedestrian-crossings/{ctx['pedestrian_crossing_id']}",
+            expected_statuses=(200,),
+            body=lambda _ctx: {
+                "is_enabled": False,
+                "name": "Crosswalk A disabled",
+                "crossing_kind": "uncontrolled",
+            },
+        ),
+        Step(
+            name="patch_approach_priority",
+            method="PATCH",
+            path=lambda ctx: f"/projects/{ctx['project_id']}/intersections/{ctx['intersection_id']}/approaches/{ctx['approach_id']}",
+            expected_statuses=(200,),
+            body=lambda _ctx: {"role": "main", "priority_rank": 1},
+        ),
+        Step(
+            name="put_priority_scheme",
+            method="PUT",
+            path=lambda ctx: f"/projects/{ctx['project_id']}/intersections/{ctx['intersection_id']}/priority-scheme",
+            expected_statuses=(200,),
+            body=lambda ctx: {
+                "items": [
+                    {
+                        "approach_id": item["id"],
+                        "role": "main" if idx == 0 else "secondary",
+                        "priority_rank": idx + 1,
+                    }
+                    for idx, item in enumerate(json.loads(ctx.get("approaches_json", "[]")))
+                ],
+                "reset_missing": False,
+            },
+        ),
+        Step(
+            name="get_priority_scheme",
+            method="GET",
+            path=lambda ctx: f"/projects/{ctx['project_id']}/intersections/{ctx['intersection_id']}/priority-scheme",
+            expected_statuses=(200,),
+        ),
+        Step(
+            name="validate_priority_scheme",
+            method="GET",
+            path=lambda ctx: f"/projects/{ctx['project_id']}/intersections/{ctx['intersection_id']}/priority-validation",
+            expected_statuses=(200,),
+        ),
+        Step(
+            name="generate_signs",
+            method="POST",
+            path=lambda ctx: f"/projects/{ctx['project_id']}/intersections/{ctx['intersection_id']}/signs/generate",
+            expected_statuses=(200,),
+            body=lambda _ctx: {"secondary_sign_type": "yield"},
+        ),
+        Step(
+            name="list_signs",
+            method="GET",
+            path=lambda ctx: f"/projects/{ctx['project_id']}/intersections/{ctx['intersection_id']}/signs",
+            expected_statuses=(200,),
+        ),
+        Step(
+            name="get_export_hints",
+            method="GET",
+            path=lambda ctx: f"/projects/{ctx['project_id']}/intersections/{ctx['intersection_id']}/export-hints",
+            expected_statuses=(200,),
+        ),
+        Step(
+            name="sync_movements",
+            method="POST",
+            path=lambda ctx: f"/projects/{ctx['project_id']}/intersections/{ctx['intersection_id']}/movements/sync",
+            expected_statuses=(200,),
+            body=lambda _ctx: {"add_missing_only": True, "remove_stale": False, "default_is_enabled": True},
+        ),
+        Step(
+            name="list_movements",
+            method="GET",
+            path=lambda ctx: f"/projects/{ctx['project_id']}/intersections/{ctx['intersection_id']}/movements",
+            expected_statuses=(200,),
+            capture=lambda ctx, body: ctx.update({"movement_id": body[0]["id"] if body else ""}),
+        ),
+        Step(
+            name="patch_movement",
+            method="PATCH",
+            path=lambda ctx: f"/projects/{ctx['project_id']}/intersections/{ctx['intersection_id']}/movements/{ctx['movement_id']}",
+            expected_statuses=(200,),
+            body=lambda _ctx: {"is_enabled": False, "movement_kind": "straight"},
+        ),
+        Step(
+            name="intersection_editor",
+            method="GET",
+            path=lambda ctx: f"/projects/{ctx['project_id']}/intersections/{ctx['intersection_id']}/editor",
+            expected_statuses=(200,),
+        ),
+        Step(
+            name="intersection_validation",
+            method="GET",
+            path=lambda ctx: f"/projects/{ctx['project_id']}/intersections/{ctx['intersection_id']}/validation",
+            expected_statuses=(200,),
+        ),
+        Step(
+            name="delete_pedestrian_crossing",
+            method="DELETE",
+            path=lambda ctx: f"/projects/{ctx['project_id']}/intersections/{ctx['intersection_id']}/pedestrian-crossings/{ctx['pedestrian_crossing_id']}",
+            expected_statuses=(204,),
+        ),
+        Step(
             name="delete_connection_manual",
             method="DELETE",
             path=lambda ctx: f"/projects/{ctx['project_id']}/connections/{ctx['connection_id']}",
@@ -382,7 +600,7 @@ def main() -> int:
     parser.add_argument("--base-url", default="http://127.0.0.1:8000", help="Backend base URL")
     args = parser.parse_args()
 
-    ctx: dict[str, str] = {}
+    ctx: dict[str, Any] = {}
     suffix = str(int(time.time()))[-6:]
     steps = build_steps(suffix)
 

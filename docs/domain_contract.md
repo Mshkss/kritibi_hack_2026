@@ -1,29 +1,29 @@
-# Domain Contract (Stage: Network + Road Segment Editor + Connection Layer)
+# Domain Contract (Stage: Network + Segment Editor + Connection + Intersection + Priority/Signs + Pedestrian Crossings)
 
 ## Purpose
 
-Документ фиксирует активную доменную модель этапов:
-- `Сеть` (граф дорог),
-- `Редактор параметров участка` (`Edge`/`Lane`),
-- `Connection layer` (направления через узел на lane-level).
+Документ фиксирует активную доменную модель backend:
+- topology layer: `Node/Edge/Lane/RoadType`,
+- traversability layer: `Connection`,
+- intersection editor layer: `Intersection/IntersectionApproach/Movement`,
+- priority/sign layer: `IntersectionApproach.role/priority_rank` + `TrafficSign`,
+- pedestrian layer: `PedestrianCrossing`.
 
 `Project` остается корневой агрегирующей сущностью.
 
 ## Core Principles
 
-- `Project` — root aggregate для всей модели.
-- Один источник истины для каждого типа данных.
-- Геометрическая связность и топологическая проходимость разделены:
-  - `Node/Edge/Lane` описывают геометрию и структуру графа,
-  - `Connection` описывает разрешенный переход между полосами через узел.
-- SUMO-ready структура хранения (`shape`, lane-level поля, `Connection` как аналог `.con.xml`).
-- Целостность обеспечивается на двух уровнях:
-  - БД (FK/UNIQUE/CHECK),
-  - сервисы (project scope, topology validation, lane consistency).
+- `Node` и `Intersection` разделены по ответственности.
+- `Connection` хранит lane-level топологию; `Movement` — editor-level управление маневром.
+- Priority layer живет на `IntersectionApproach`, без отдельной схемной таблицы.
+- Pedestrian crossings — отдельная сущность, а не boolean-флаг на approach.
+- `side_key` — source of truth для идентификации стороны crossing в intersection.
 
 ## Active Entities
 
 ## Project
+
+Root aggregate.
 
 Поля:
 - `id`
@@ -32,15 +32,9 @@
 - `created_at`
 - `updated_at`
 
-Связи:
-- `Project 1 -> N Node`
-- `Project 1 -> N Edge`
-- `Project 1 -> N RoadType`
-- `Project 1 -> N Connection`
-
 ## Node
 
-Геометрическая и топологическая точка сети. Пока это не полноценная конфигурация `Intersection`.
+Топологическая точка сети.
 
 Поля:
 - `id`
@@ -55,34 +49,9 @@
 - incoming edges: `to_node_id == node.id`
 - outgoing edges: `from_node_id == node.id`
 
-Инварианты:
-- `code` уникален внутри проекта.
-- нельзя удалить `Node`, если есть связанные `Edge`.
-
-## RoadType
-
-Шаблон (defaults) для участка.
-
-Поля:
-- `id`
-- `project_id`
-- `code`
-- `name` nullable
-- `num_lanes` nullable
-- `speed` nullable
-- `priority` nullable
-- `width` nullable
-- `sidewalk_width` nullable
-- `created_at`
-- `updated_at`
-
-Инварианты:
-- `code` уникален внутри проекта.
-
 ## Edge
 
-Направленный участок дороги (`from_node -> to_node`).
-Двусторонняя дорога представляется двумя `Edge`.
+Directed road segment.
 
 Поля:
 - `id`
@@ -101,129 +70,213 @@
 - `created_at`
 - `updated_at`
 
-Инварианты:
-- `code` уникален внутри проекта.
-- `from_node_id != to_node_id`.
-- у `Edge` минимум одна `Lane`.
-
 ## Lane
 
-Полоса в составе `Edge`.
+Lane in edge.
 
 Поля:
 - `id`
 - `edge_id`
-- `index` (`0` — правая полоса)
+- `index`
 - `allow` nullable
 - `disallow` nullable
-- `speed` nullable (override)
-- `width` nullable (override)
+- `speed` nullable
+- `width` nullable
 - `created_at`
 - `updated_at`
 
-Инварианты:
-- `index` уникален внутри `edge_id`.
-- `index >= 0`.
-- `allow` и `disallow` не могут пересекаться по транспортным классам.
+## RoadType
+
+Defaults-шаблон параметров edge.
+
+Поля:
+- `id`
+- `project_id`
+- `code`
+- `name` nullable
+- `num_lanes` nullable
+- `speed` nullable
+- `priority` nullable
+- `width` nullable
+- `sidewalk_width` nullable
+- `created_at`
+- `updated_at`
+
+Семантика:
+- snapshot defaults (применение в edge копирует значения в edge).
 
 ## Connection
 
-Lane-level directed transition через конкретный узел.
+Lane-level directed transition через `via_node`.
 
 Поля:
 - `id`
 - `project_id`
 - `via_node_id`
-- `from_edge_id` (incoming edge)
-- `to_edge_id` (outgoing edge)
+- `from_edge_id`
+- `to_edge_id`
 - `from_lane_index`
 - `to_lane_index`
-- `uncontrolled` (default `false`)
+- `uncontrolled`
 - `created_at`
 - `updated_at`
 
 Инварианты:
-- уникальность: `(project_id, from_edge_id, to_edge_id, from_lane_index, to_lane_index)`.
-- `from_lane_index >= 0`, `to_lane_index >= 0`.
-- `from_edge_id != to_edge_id`.
-- `from_edge.to_node_id == to_edge.from_node_id == via_node_id`.
-- `from_lane_index` существует в `from_edge`.
-- `to_lane_index` существует в `to_edge`.
-- все сущности принадлежат одному `project`.
+- `from_edge.to_node_id == to_edge.from_node_id == via_node_id`
+- lane-index существует на соответствующем edge
+- unique `(project_id, from_edge_id, to_edge_id, from_lane_index, to_lane_index)`
 
-## Editor/Layer Semantics
+## Intersection
 
-## length
+Editor-конфигурация поверх `Node`.
 
-- хранится в `edges.length`.
-- при создании `Edge`, при `PATCH /shape` и при `POST /recalculate-length` длина считается по геометрии.
-- в `PATCH /edges/{edge_id}` длину можно задать вручную.
+Поля:
+- `id`
+- `project_id`
+- `node_id`
+- `kind` (`crossroad` | `roundabout`)
+- `name` nullable
+- `created_at`
+- `updated_at`
 
-## apply road type
+Инварианты:
+- один `Node` -> максимум один `Intersection`.
 
-- snapshot semantics:
-  - записывает `edge.road_type_id`,
-  - копирует defaults в фактические поля `Edge`,
-  - request overrides имеют приоритет.
-- `apply_to_lanes=true` массово обновляет lane-level `speed/width`, не трогая `allow/disallow`.
+## IntersectionApproach
 
-## full replace lanes vs patch lane
+Опорная сущность incoming edge в intersection.
 
-- `PUT /edges/{edge_id}/lanes`: атомарная полная замена списка полос.
-- `PATCH /edges/{edge_id}/lanes/{lane_id}`: точечное изменение одной полосы.
+Поля:
+- `id`
+- `project_id`
+- `intersection_id`
+- `incoming_edge_id`
+- `order_index` nullable
+- `name` nullable
+- `role` nullable (`main` | `secondary`)
+- `priority_rank` nullable (`>= 0`)
+- `created_at`
+- `updated_at`
 
-## connection autogeneration (MVP)
+Инварианты:
+- unique `(intersection_id, incoming_edge_id)`
+- `incoming_edge_id` должен быть incoming для `intersection.node_id`
 
-- add-missing only (не удаляет существующие пользовательские записи).
-- для каждой пары `incoming -> outgoing` на узле:
-  - lane mapping: `0->0`, `1->1`, ... до `min(num_from_lanes, num_to_lanes) - 1`.
-- сложные merge/split сценарии автоматически не решаются.
-- U-turn connection автоматически не генерируется по умолчанию.
+## Movement
 
-## Geometry Rules
+Разрешенный маневр editor-layer поверх `Connection`.
 
-`GeometryService`:
-- валидирует координаты и `shape`,
-- нормализует крайние точки `shape` под координаты `from_node`/`to_node`,
-- считает длину polyline.
+Поля:
+- `id`
+- `project_id`
+- `intersection_id`
+- `approach_id`
+- `connection_id`
+- `from_edge_id`
+- `to_edge_id`
+- `from_lane_index`
+- `to_lane_index`
+- `is_enabled`
+- `movement_kind` nullable
+- `created_at`
+- `updated_at`
 
-При перемещении `Node`:
-- крайние точки связанных `Edge.shape` синхронизируются автоматически,
-- `Edge.length` пересчитывается.
+Source of truth:
+- `connection_id`.
+- `from/to edge + lane` — denormalized snapshot для editor.
 
-## Consistency Strategy for Connection
+## TrafficSign
 
-1. `via_node_id` хранится явно (для прозрачности и быстрых node-centric выборок), но всегда валидируется против topology `from_edge/to_edge`.
-2. `autogenerate` работает в режиме add-missing only.
-3. U-turn:
-   - не создается автоматически по умолчанию,
-   - может быть создан вручную, если topology и lane-level валидации проходят.
-4. Влияние edge/lane изменений:
-   - удаление `Edge` каскадно удаляет связанные `Connection` через FK (`ondelete=CASCADE`),
-   - destructive lane-index изменение, которое ломает существующие `Connection`, блокируется на уровне сервиса с явной ошибкой.
+Persisted знак для editor/export.
 
-## SUMO Readiness
+Поля:
+- `id`
+- `project_id`
+- `intersection_id` nullable
+- `approach_id` nullable
+- `node_id` nullable
+- `edge_id` nullable
+- `sign_type` (`main_road` | `yield` | `stop`)
+- `generated`
+- `metadata` JSON nullable
+- `created_at`
+- `updated_at`
 
-- Node: `id`, `x`, `y`, `type`
-- Edge: `from`, `to`, `type`, `speed`, `priority`, `length`, `width`, `sidewalkWidth`, `shape`, `name`
-- RoadType: `id`, `numLanes`, `speed`, `priority`, `width`, `sidewalkWidth`
-- Lane: `index`, `allow`, `disallow`, `speed`, `width`
-- Connection: `from`, `to`, `fromLane`, `toLane`, `uncontrolled`
+## PedestrianCrossing
 
-## Explicit Decisions
+Persisted pedestrian crossing на стороне intersection.
 
-1. `shape` хранится как JSON-массив точек (`[{x, y}, ...]`) в `edges.shape`.
-2. `numLanes` не хранится в `Edge`, вычисляется как `len(edge.lanes)`.
-3. `via_node_id` хранится явно и проверяется на консистентность.
-4. `RoadType` — snapshot defaults, не динамическая ссылка.
-5. Connection autogenerate: add-missing only.
-6. U-turn: no auto by default.
+Поля:
+- `id`
+- `project_id`
+- `intersection_id`
+- `approach_id` nullable
+- `side_key`
+- `is_enabled`
+- `name` nullable
+- `crossing_kind` nullable (`zebra` | `signalized` | `uncontrolled`)
+- `created_at`
+- `updated_at`
+
+Инварианты:
+- unique `(intersection_id, side_key)` — один crossing на сторону.
+- `side_key` = source of truth идентификатора стороны.
+- `approach_id` — optional link на `IntersectionApproach`.
+
+## Priority/Sign Decisions (MVP)
+
+1. Source of truth priority scheme:
+- `IntersectionApproach.role` + `IntersectionApproach.priority_rank`.
+
+2. Draft policy:
+- неполная схема разрешена.
+- validation показывает `is_valid/is_complete`.
+
+3. Sign persistence:
+- generated signs persisted, manual signs не затираются.
+
+4. Secondary sign policy:
+- default secondary -> `yield`, `stop` только явным параметром.
+
+5. Export hints:
+- `priority_stop` если схема валидна и есть `stop`,
+- `priority` если валидна без `stop`,
+- иначе `node_type = null`.
+
+## Pedestrian Crossing Decisions (MVP)
+
+1. Side semantics:
+- `side_key` технический стабильный ключ стороны.
+- текущий формат candidate sides: `approach:{approach_id}`.
+
+2. Source of truth:
+- `side_key` определяет сторону и уникальность.
+- `approach_id` вторичен, для editor/topology связи.
+
+3. Uniqueness policy:
+- один crossing на сторону (`unique(intersection_id, side_key)`).
+
+4. Disable semantics:
+- `is_enabled=false` отключает crossing без удаления.
+- физическое удаление — отдельная delete-операция.
+
+5. Candidate sides derivation:
+- строится из текущих `IntersectionApproach`.
+- если approaches есть, `side_key` обязан соответствовать candidate side.
+
+## Existing Stage Decisions (unchanged)
+
+1. `shape` хранится JSON-массивом точек в `edges.shape`.
+2. `numLanes` derived: `len(edge.lanes)`.
+3. `RoadType` — snapshot defaults.
+4. `Connection` autogenerate: add-missing only.
+5. U-turn: не авто-генерируется по умолчанию.
 
 ## Deferred Next Stages
 
-- `Intersection` editor
-- turn classification (left/right/straight/U-turn metadata)
-- traffic light plans/phases
-- conflict matrix / right-of-way engine
-- pedestrian graph
-- SUMO import/export pipeline
+- pedestrian conflict matrix
+- pedestrian priorities/right-of-way engine
+- traffic light phases/signal groups
+- conflict matrix для vehicle movements
+- detailed crossing geometry/markup
+- full SUMO XML pipeline (import/export orchestration)

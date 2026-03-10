@@ -1,0 +1,218 @@
+import { Edge, NetworkState, Node, NodeType, Point } from '../types';
+
+export const PERSISTED_EDITOR_STATE_VERSION = 1 as const;
+export const NETWORK_EDITOR_STORAGE_KEY = 'lane-network-editor.session.v1';
+export const NETWORK_EDITOR_HISTORY_LIMIT = 100;
+export const NETWORK_EDITOR_AUTOSAVE_DEBOUNCE_MS = 300;
+
+export type EditorHistoryState = {
+  history: NetworkState[];
+  currentIndex: number;
+};
+
+export type PersistedEditorStateV1 = {
+  version: typeof PERSISTED_EDITOR_STATE_VERSION;
+  savedAt: string;
+  currentIndex: number;
+  history: NetworkState[];
+};
+
+type LoadPersistedHistoryParams = {
+  storageKey: string;
+  normalizeState: (networkState: NetworkState) => NetworkState;
+};
+
+type PersistHistoryParams = {
+  storageKey: string;
+  history: NetworkState[];
+  currentIndex: number;
+};
+
+type AppendHistoryParams = {
+  history: NetworkState[];
+  currentIndex: number;
+  nextState: NetworkState;
+  maxHistory: number;
+};
+
+const NODE_TYPE_SET: Set<NodeType> = new Set([
+  'default',
+  'traffic_light',
+  'crossing',
+  'bus_stop',
+  'speed_limit',
+]);
+
+const isRecord = (value: unknown): value is Record<string, unknown> =>
+  typeof value === 'object' && value !== null && !Array.isArray(value);
+
+const isFiniteNumber = (value: unknown): value is number =>
+  typeof value === 'number' && Number.isFinite(value);
+
+const isNodeType = (value: unknown): value is NodeType =>
+  typeof value === 'string' && NODE_TYPE_SET.has(value as NodeType);
+
+const isPoint = (value: unknown): value is Point => {
+  if (!isRecord(value)) return false;
+  return isFiniteNumber(value.lat) && isFiniteNumber(value.lng);
+};
+
+const isNode = (value: unknown): value is Node => {
+  if (!isRecord(value)) return false;
+  if (typeof value.id !== 'string') return false;
+  if (!isFiniteNumber(value.lat) || !isFiniteNumber(value.lng)) return false;
+  if (value.name !== undefined && typeof value.name !== 'string') return false;
+  if (value.speedLimit !== undefined && !isFiniteNumber(value.speedLimit)) return false;
+  if (value.type !== undefined && !isNodeType(value.type)) return false;
+  return true;
+};
+
+const isStringRecord = (value: unknown): value is Record<string, string> => {
+  if (!isRecord(value)) return false;
+  return Object.values(value).every((entry) => typeof entry === 'string');
+};
+
+const isEdge = (value: unknown): value is Edge => {
+  if (!isRecord(value)) return false;
+  if (typeof value.id !== 'string') return false;
+  if (typeof value.sourceId !== 'string') return false;
+  if (typeof value.targetId !== 'string') return false;
+  if (!Array.isArray(value.points) || !value.points.every(isPoint)) return false;
+  if (typeof value.isOneWay !== 'boolean') return false;
+  if (typeof value.crossroad !== 'boolean') return false;
+  if (typeof value.busStop !== 'boolean') return false;
+  if (!isFiniteNumber(value.speedLimit)) return false;
+  if (value.name !== undefined && typeof value.name !== 'string') return false;
+  if (value.laneIndex !== undefined && !isFiniteNumber(value.laneIndex)) return false;
+  if (value.isForward !== undefined && typeof value.isForward !== 'boolean') return false;
+  if (value.tags !== undefined && !isStringRecord(value.tags)) return false;
+  return true;
+};
+
+const isNetworkState = (value: unknown): value is NetworkState => {
+  if (!isRecord(value)) return false;
+  if (!isRecord(value.nodes) || !isRecord(value.edges)) return false;
+  return Object.values(value.nodes).every(isNode) && Object.values(value.edges).every(isEdge);
+};
+
+const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
+
+const isQuotaExceededError = (error: unknown): boolean => {
+  if (!(error instanceof DOMException)) return false;
+  return error.name === 'QuotaExceededError' || error.name === 'NS_ERROR_DOM_QUOTA_REACHED';
+};
+
+const toPersistedPayload = (history: NetworkState[], currentIndex: number): PersistedEditorStateV1 => ({
+  version: PERSISTED_EDITOR_STATE_VERSION,
+  savedAt: new Date().toISOString(),
+  currentIndex,
+  history,
+});
+
+const sanitizePersistedHistory = (
+  raw: unknown,
+  normalizeState: (networkState: NetworkState) => NetworkState,
+): EditorHistoryState | null => {
+  if (!isRecord(raw)) return null;
+  if (raw.version !== PERSISTED_EDITOR_STATE_VERSION) return null;
+  if (!Array.isArray(raw.history)) return null;
+
+  const normalizedHistory = raw.history
+    .filter(isNetworkState)
+    .map((networkState) => normalizeState(networkState));
+
+  if (normalizedHistory.length === 0) return null;
+
+  const boundedHistory =
+    normalizedHistory.length > NETWORK_EDITOR_HISTORY_LIMIT
+      ? normalizedHistory.slice(-NETWORK_EDITOR_HISTORY_LIMIT)
+      : normalizedHistory;
+  const droppedCount = normalizedHistory.length - boundedHistory.length;
+
+  const rawIndex = Number.isInteger(raw.currentIndex) ? Number(raw.currentIndex) : normalizedHistory.length - 1;
+  const currentIndex = clamp(rawIndex - droppedCount, 0, boundedHistory.length - 1);
+
+  return {
+    history: boundedHistory,
+    currentIndex,
+  };
+};
+
+export function createInitialHistoryState(
+  storageKey: string,
+  fallbackState: NetworkState,
+  normalizeState: (networkState: NetworkState) => NetworkState,
+): EditorHistoryState {
+  const persisted = loadPersistedHistoryState({ storageKey, normalizeState });
+  if (persisted) return persisted;
+  return {
+    history: [fallbackState],
+    currentIndex: 0,
+  };
+}
+
+export function appendHistoryState({
+  history,
+  currentIndex,
+  nextState,
+  maxHistory,
+}: AppendHistoryParams): EditorHistoryState {
+  const historyWithBranchCut = history.slice(0, currentIndex + 1);
+  historyWithBranchCut.push(nextState);
+
+  const boundedMaxHistory = Math.max(1, Math.floor(maxHistory));
+  const overflow = Math.max(0, historyWithBranchCut.length - boundedMaxHistory);
+  const boundedHistory = overflow > 0 ? historyWithBranchCut.slice(overflow) : historyWithBranchCut;
+
+  return {
+    history: boundedHistory,
+    currentIndex: boundedHistory.length - 1,
+  };
+}
+
+export function loadPersistedHistoryState({
+  storageKey,
+  normalizeState,
+}: LoadPersistedHistoryParams): EditorHistoryState | null {
+  if (typeof window === 'undefined') return null;
+
+  const rawText = window.localStorage.getItem(storageKey);
+  if (!rawText) return null;
+
+  try {
+    const parsed = JSON.parse(rawText) as unknown;
+    return sanitizePersistedHistory(parsed, normalizeState);
+  } catch {
+    return null;
+  }
+}
+
+export function persistHistoryStateWithFallback({
+  storageKey,
+  history,
+  currentIndex,
+}: PersistHistoryParams): void {
+  if (typeof window === 'undefined') return;
+  if (history.length === 0) return;
+
+  let candidateLength = history.length;
+
+  while (candidateLength >= 1) {
+    const startIndex = history.length - candidateLength;
+    const candidateHistory = history.slice(startIndex);
+    const candidateIndex = clamp(currentIndex - startIndex, 0, candidateHistory.length - 1);
+    const payload = toPersistedPayload(candidateHistory, candidateIndex);
+
+    try {
+      window.localStorage.setItem(storageKey, JSON.stringify(payload));
+      return;
+    } catch (error) {
+      if (isQuotaExceededError(error) && candidateLength > 1) {
+        candidateLength = Math.max(1, Math.floor(candidateLength / 2));
+        continue;
+      }
+      console.warn('Failed to persist editor state in localStorage.', error);
+      return;
+    }
+  }
+}
