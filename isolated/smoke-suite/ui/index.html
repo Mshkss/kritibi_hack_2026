@@ -408,6 +408,70 @@
             },
           },
           {
+            name: 'pedestrian_crossing_sides', method: 'GET',
+            path: () => `/projects/${ctx.projectId}/intersections/${ctx.intersectionId}/pedestrian-crossing-sides`,
+            expected: [200],
+            capture: (body) => {
+              ctx.pedestrianSideKey = body?.candidate_sides?.[0]?.side_key;
+            },
+          },
+          {
+            name: 'create_pedestrian_crossing', method: 'POST',
+            path: () => `/projects/${ctx.projectId}/intersections/${ctx.intersectionId}/pedestrian-crossings`,
+            expected: [201],
+            body: () => ({
+              approach_id: ctx.approachId,
+              side_key: `approach:${ctx.approachId}`,
+              is_enabled: true,
+              name: 'Crosswalk A',
+              crossing_kind: 'zebra',
+            }),
+            capture: (body) => { ctx.pedestrianCrossingId = body.id; },
+          },
+          {
+            name: 'list_pedestrian_crossings', method: 'GET',
+            path: () => `/projects/${ctx.projectId}/intersections/${ctx.intersectionId}/pedestrian-crossings`,
+            expected: [200],
+          },
+          {
+            name: 'get_pedestrian_crossing', method: 'GET',
+            path: () => `/projects/${ctx.projectId}/intersections/${ctx.intersectionId}/pedestrian-crossings/${ctx.pedestrianCrossingId}`,
+            expected: [200],
+          },
+          {
+            name: 'create_pedestrian_crossing_duplicate_side', method: 'POST',
+            path: () => `/projects/${ctx.projectId}/intersections/${ctx.intersectionId}/pedestrian-crossings`,
+            expected: [409],
+            body: () => ({
+              approach_id: ctx.approachId,
+              side_key: `approach:${ctx.approachId}`,
+              is_enabled: true,
+              name: 'Duplicate crossing',
+              crossing_kind: 'signalized',
+            }),
+          },
+          {
+            name: 'create_pedestrian_crossing_invalid_side', method: 'POST',
+            path: () => `/projects/${ctx.projectId}/intersections/${ctx.intersectionId}/pedestrian-crossings`,
+            expected: [400],
+            body: () => ({
+              side_key: 'approach:not-a-real-approach',
+              is_enabled: true,
+              name: 'Invalid side crossing',
+              crossing_kind: 'zebra',
+            }),
+          },
+          {
+            name: 'patch_pedestrian_crossing_disable', method: 'PATCH',
+            path: () => `/projects/${ctx.projectId}/intersections/${ctx.intersectionId}/pedestrian-crossings/${ctx.pedestrianCrossingId}`,
+            expected: [200],
+            body: () => ({
+              is_enabled: false,
+              name: 'Crosswalk A disabled',
+              crossing_kind: 'uncontrolled',
+            }),
+          },
+          {
             name: 'patch_approach_priority', method: 'PATCH',
             path: () => `/projects/${ctx.projectId}/intersections/${ctx.intersectionId}/approaches/${ctx.approachId}`,
             expected: [200],
@@ -479,6 +543,11 @@
             name: 'intersection_validation', method: 'GET',
             path: () => `/projects/${ctx.projectId}/intersections/${ctx.intersectionId}/validation`,
             expected: [200],
+          },
+          {
+            name: 'delete_pedestrian_crossing', method: 'DELETE',
+            path: () => `/projects/${ctx.projectId}/intersections/${ctx.intersectionId}/pedestrian-crossings/${ctx.pedestrianCrossingId}`,
+            expected: [204],
           },
           {
             name: 'delete_connection_manual', method: 'DELETE',

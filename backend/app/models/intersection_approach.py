@@ -57,3 +57,8 @@ class IntersectionApproachModel(Base):
         back_populates="approach",
         passive_deletes=True,
     )
+    pedestrian_crossings: Mapped[list["PedestrianCrossingModel"]] = relationship(
+        "PedestrianCrossingModel",
+        back_populates="approach",
+        passive_deletes=True,
+    )

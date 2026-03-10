@@ -6,6 +6,7 @@ from app.models.intersection import IntersectionModel
 from app.models.intersection_approach import IntersectionApproachModel
 from app.models.movement import MovementModel
 from app.models.node import NodeModel
+from app.models.pedestrian_crossing import PedestrianCrossingModel
 from app.models.traffic_sign import TrafficSignModel
 from app.schemas.connection import ConnectionResponse, EdgeConnectionSummary, NodeSummary
 from app.schemas.edge import EdgeRead
@@ -15,6 +16,7 @@ from app.schemas.intersection import (
     IntersectionNodeSummary,
     IntersectionResponse,
     MovementResponse,
+    PedestrianCrossingResponse,
     TrafficSignResponse,
 )
 
@@ -179,5 +181,26 @@ def traffic_sign_to_response(sign: TrafficSignModel) -> TrafficSignResponse:
             "metadata": sign.payload,
             "created_at": sign.created_at,
             "updated_at": sign.updated_at,
+        }
+    )
+
+
+def pedestrian_crossing_to_response(crossing: PedestrianCrossingModel) -> PedestrianCrossingResponse:
+    approach = crossing.approach
+    incoming_edge = approach.incoming_edge if approach is not None else None
+    return PedestrianCrossingResponse.model_validate(
+        {
+            "id": crossing.id,
+            "project_id": crossing.project_id,
+            "intersection_id": crossing.intersection_id,
+            "approach_id": crossing.approach_id,
+            "side_key": crossing.side_key,
+            "is_enabled": crossing.is_enabled,
+            "name": crossing.name,
+            "crossing_kind": crossing.crossing_kind,
+            "incoming_edge_id": incoming_edge.id if incoming_edge is not None else None,
+            "incoming_edge_code": incoming_edge.code if incoming_edge is not None else None,
+            "created_at": crossing.created_at,
+            "updated_at": crossing.updated_at,
         }
     )

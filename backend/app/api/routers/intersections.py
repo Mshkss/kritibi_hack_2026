@@ -2,7 +2,7 @@
 
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 
 from app.api.deps import get_intersection_service
 from app.api.serializers import (
@@ -11,6 +11,7 @@ from app.api.serializers import (
     intersection_node_to_summary,
     intersection_to_response,
     movement_to_response,
+    pedestrian_crossing_to_response,
     traffic_sign_to_response,
 )
 from app.schemas.intersection import (
@@ -28,6 +29,11 @@ from app.schemas.intersection import (
     MovementResponse,
     MovementsSyncRequest,
     MovementsSyncResponse,
+    PedestrianCrossingCreateRequest,
+    PedestrianCrossingListResponse,
+    PedestrianCrossingPatchRequest,
+    PedestrianCrossingResponse,
+    PedestrianCrossingSidesResponse,
     PrioritySchemePutRequest,
     PrioritySchemeResponse,
     PrioritySchemeValidationResponse,
@@ -271,6 +277,119 @@ def get_export_hints(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 
 
+@router.post(
+    "/intersections/{intersection_id}/pedestrian-crossings",
+    response_model=PedestrianCrossingResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_pedestrian_crossing(
+    project_id: UUID,
+    intersection_id: UUID,
+    payload: PedestrianCrossingCreateRequest,
+    service: IntersectionService = Depends(get_intersection_service),
+) -> PedestrianCrossingResponse:
+    try:
+        crossing = service.create_pedestrian_crossing(str(project_id), str(intersection_id), payload)
+        return pedestrian_crossing_to_response(crossing)
+    except ValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except ConflictError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    except NotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+
+@router.get(
+    "/intersections/{intersection_id}/pedestrian-crossings",
+    response_model=PedestrianCrossingListResponse,
+)
+def list_pedestrian_crossings(
+    project_id: UUID,
+    intersection_id: UUID,
+    service: IntersectionService = Depends(get_intersection_service),
+) -> PedestrianCrossingListResponse:
+    try:
+        crossings = service.list_pedestrian_crossings(str(project_id), str(intersection_id))
+        return PedestrianCrossingListResponse(
+            intersection_id=str(intersection_id),
+            crossings=[pedestrian_crossing_to_response(item) for item in crossings],
+        )
+    except NotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+
+@router.get(
+    "/intersections/{intersection_id}/pedestrian-crossings/{crossing_id}",
+    response_model=PedestrianCrossingResponse,
+)
+def get_pedestrian_crossing(
+    project_id: UUID,
+    intersection_id: UUID,
+    crossing_id: UUID,
+    service: IntersectionService = Depends(get_intersection_service),
+) -> PedestrianCrossingResponse:
+    try:
+        crossing = service.get_pedestrian_crossing(str(project_id), str(intersection_id), str(crossing_id))
+        return pedestrian_crossing_to_response(crossing)
+    except NotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+
+@router.patch(
+    "/intersections/{intersection_id}/pedestrian-crossings/{crossing_id}",
+    response_model=PedestrianCrossingResponse,
+)
+def patch_pedestrian_crossing(
+    project_id: UUID,
+    intersection_id: UUID,
+    crossing_id: UUID,
+    payload: PedestrianCrossingPatchRequest,
+    service: IntersectionService = Depends(get_intersection_service),
+) -> PedestrianCrossingResponse:
+    try:
+        crossing = service.patch_pedestrian_crossing(
+            str(project_id),
+            str(intersection_id),
+            str(crossing_id),
+            payload,
+        )
+        return pedestrian_crossing_to_response(crossing)
+    except ValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except ConflictError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    except NotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+
+@router.delete("/intersections/{intersection_id}/pedestrian-crossings/{crossing_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_pedestrian_crossing(
+    project_id: UUID,
+    intersection_id: UUID,
+    crossing_id: UUID,
+    service: IntersectionService = Depends(get_intersection_service),
+) -> Response:
+    try:
+        service.delete_pedestrian_crossing(str(project_id), str(intersection_id), str(crossing_id))
+    except NotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.get("/intersections/{intersection_id}/pedestrian-crossing-sides", response_model=PedestrianCrossingSidesResponse)
+def get_pedestrian_crossing_sides(
+    project_id: UUID,
+    intersection_id: UUID,
+    service: IntersectionService = Depends(get_intersection_service),
+) -> PedestrianCrossingSidesResponse:
+    try:
+        data = service.pedestrian_crossing_sides(str(project_id), str(intersection_id))
+        return PedestrianCrossingSidesResponse.model_validate(data)
+    except NotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+
 @router.post("/intersections/{intersection_id}/movements/sync", response_model=MovementsSyncResponse)
 def sync_movements(
     project_id: UUID,
@@ -353,6 +472,10 @@ def get_editor_card(
             ),
             generated_signs=[traffic_sign_to_response(item) for item in data["generated_signs"]],
             export_hints=IntersectionExportHintsResponse.model_validate(data["export_hints"]),
+            pedestrian_crossings=[pedestrian_crossing_to_response(item) for item in data["pedestrian_crossings"]],
+            pedestrian_crossing_sides=PedestrianCrossingSidesResponse.model_validate(
+                data["pedestrian_crossing_sides"]
+            ),
         )
     except NotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
