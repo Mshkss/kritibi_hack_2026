@@ -1,75 +1,159 @@
-# Domain Contract (Foundation Stage)
+# Domain Contract (Stage: Network Constructor)
 
 ## Purpose
 
-Документ фиксирует базовый доменный контракт подготовительного этапа backend для редактора цифрового двойника дорожной сети.
+Документ фиксирует доменную модель этапа "Конструктор / Сеть".
+На этом этапе backend реализует ядро дорожного графа проекта:
+- узлы (`Node`),
+- направленные участки (`Edge`),
+- полосы (`Lane`),
+- типы дорог (`RoadType`).
 
-На этом этапе реализуется только фундамент и корневая сущность `Project`.
-Остальные сущности фиксируются как целевой доменный контур следующих этапов.
+`Project` остается корневой агрегирующей сущностью.
 
 ## Core Principles
 
-- `Project` — корневая агрегирующая сущность (root aggregate).
+- `Project` — root aggregate для всей сетевой модели.
 - Один источник истины для каждого типа данных.
-- Минимизация дублирования между сущностями и API.
-- Подготовка к совместимости с SUMO/XML (стабильные внешние идентификаторы, явные связи графа).
-- Пошаговое наращивание модели без перелома архитектуры.
+- Минимизация дублирования между шаблонами (`RoadType`) и фактическими значениями (`Edge`).
+- Подготовка к SUMO PlainXML без перелома модели (`.nod.xml`, `.edg.xml`, `.typ.xml`).
+- Ограничения целостности на двух уровнях:
+  - БД (FK/UNIQUE/CHECK),
+  - сервисы (проектная принадлежность, геометрия, бизнес-правила).
 
-## Domain Entities
+## Aggregate Boundaries
 
-### Already required now
+## Project (already active)
 
-#### Project
-Контейнер модели дорожной сети.
-Содержит метаданные проекта и ограничивает границы целостности всех остальных сущностей.
+Root aggregate.
 
-Поля текущего этапа:
+Поля:
 - `id`
 - `name`
-- `description` nullable
+- `description`
 - `created_at`
 - `updated_at`
 
-### Planned for next stages
+Связи:
+- `Project 1 -> N Node`
+- `Project 1 -> N Edge`
+- `Project 1 -> N RoadType`
 
-#### Node
-Топологическая вершина дорожного графа (геометрическая точка, узел соединения дорог).
+## Node (active now)
 
-#### Edge
-Ориентированный участок дороги между двумя `Node`.
+Геометрическая и топологическая точка дорожного графа.
+На этом этапе `Node` еще не является полноценной конфигурацией `Intersection`.
 
-#### Lane
-Полоса движения внутри `Edge` (lane-level настройки).
+Поля:
+- `id`
+- `project_id`
+- `code`
+- `x`, `y`
+- `type` nullable
+- `created_at`
+- `updated_at`
 
-#### Intersection
-Логическая модель пересечения поверх `Node`.
+Инварианты:
+- `code` уникален в рамках проекта.
+- Удаление узла запрещено при наличии связанных `Edge`.
 
-#### Connection
-Разрешённый переход между входящими/исходящими полосами через узел.
+## RoadType (active now)
 
-#### RoadModifier (коэффициент/модификатор)
-Локальные изменения параметров дорожного сегмента (ограничения, режимы, специальные зоны).
+Шаблон параметров дорожного участка.
 
-#### TrafficLightPlan
-План светофорного регулирования для пересечения.
+Поля:
+- `id`
+- `project_id`
+- `code`
+- `name` nullable
+- `num_lanes` nullable
+- `speed` nullable
+- `priority` nullable
+- `width` nullable
+- `sidewalk_width` nullable
+- `created_at`
+- `updated_at`
 
-#### Phase
-Фаза внутри `TrafficLightPlan` с длительностью и состояниями сигналов.
+Инварианты:
+- `code` уникален в рамках проекта.
 
-## Stage Boundaries
+## Edge (active now)
 
-### Included in this iteration
+Направленный участок дороги (`from_node -> to_node`).
+Двусторонняя дорога моделируется двумя `Edge` в противоположных направлениях.
 
-- Backend skeleton (FastAPI + config + DB/session)
-- Alembic migration infrastructure
-- Таблица `projects`
-- Минимальный CRUD для `Project`
-- Контракты foundation-уровня
+Поля:
+- `id`
+- `project_id`
+- `code`
+- `from_node_id`
+- `to_node_id`
+- `road_type_id` nullable
+- `name` nullable
+- `speed` nullable
+- `priority` nullable
+- `length` nullable
+- `width` nullable
+- `sidewalk_width` nullable
+- `shape` (polyline)
+- `created_at`
+- `updated_at`
 
-### Intentionally deferred
+Инварианты:
+- `code` уникален в рамках проекта.
+- `from_node_id != to_node_id`.
+- `Edge` должен иметь минимум одну `Lane`.
 
-- Полная графовая модель (`Node`, `Edge`, `Lane`)
-- Пересечения, связи и правила манёвров
-- Светофорные планы и фазовая логика
-- Импорт/экспорт SUMO/XML
-- Геометрическая и транспортная бизнес-валидация
+## Lane (active now)
+
+Полоса внутри `Edge`.
+
+Поля:
+- `id`
+- `edge_id`
+- `index` (`0` — самая правая)
+- `allow` nullable
+- `speed` nullable
+- `width` nullable
+- `created_at`
+- `updated_at`
+
+Инварианты:
+- `index` уникален в рамках `edge_id`.
+- `index >= 0`.
+
+## Geometry Rules (active now)
+
+`GeometryService` отвечает за MVP-геометрию:
+- валидация координат узлов,
+- валидация/нормализация `shape`,
+- расчет `length` по polyline,
+- синхронизация крайних точек `shape` с координатами `from/to` узлов.
+
+Принятое поведение при перемещении `Node`:
+- крайние точки всех связанных `Edge.shape` обновляются автоматически,
+- `Edge.length` пересчитывается.
+
+## SUMO Readiness
+
+Модель уже хранит обязательные поля для PlainXML:
+- Node (`id`, `x`, `y`, `type`) -> `.nod.xml`
+- Edge (`from`, `to`, `type`, `speed`, `priority`, `length`, `width`, `sidewalkWidth`, `shape`, `name`) -> `.edg.xml`
+- RoadType (`id`, `numLanes`, `speed`, `priority`, `width`, `sidewalkWidth`) -> `.typ.xml`
+- Lane (`index`, `allow`, `speed`, `width`) -> `.edg.xml` lane-level
+
+## Explicit Architectural Decisions
+
+1. `shape` хранится как JSON-массив точек (`[{x, y}, ...]`) в поле `edges.shape`.
+2. `numLanes` не хранится отдельно в `Edge`, вычисляется как `len(lanes)`.
+3. При перемещении `Node` связанные `Edge.shape` корректируются автоматически по концам.
+4. `RoadType` применяется как defaults-снимок: значения копируются в `Edge` при создании/применении.
+   Дальнейшие изменения `RoadType` не вызывают неявных массовых изменений существующих `Edge`.
+
+## Next Stages (deferred intentionally)
+
+- `Intersection` editor
+- `Connection` matrix/turn connectivity
+- `TrafficLightPlan` и `Phase`
+- модификаторы дорожных сегментов
+- полноценный SUMO import/export
