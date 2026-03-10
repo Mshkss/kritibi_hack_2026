@@ -1,18 +1,5 @@
-"""Pydantic schemas for Movement."""
+"""Compatibility re-exports for movement schemas."""
 
-from typing import Optional
+from app.schemas.intersection import MovementPatchRequest, MovementResponse
 
-from pydantic import BaseModel
-
-
-class MovementCreate(BaseModel):
-    code: str
-
-
-class MovementUpdate(BaseModel):
-    code: Optional[str] = None
-
-
-class MovementRead(BaseModel):
-    id: str
-    code: str
+__all__ = ["MovementPatchRequest", "MovementResponse"]

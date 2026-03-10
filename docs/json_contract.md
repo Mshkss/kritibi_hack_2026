@@ -1,4 +1,4 @@
-# JSON Contract (Stage: Network + Road Segment Editor + Connection Layer)
+# JSON Contract (Stage: Network + Segment Editor + Connection Layer + Intersection Editor)
 
 Base URL: `/`  
 Content-Type: `application/json`
@@ -6,307 +6,306 @@ Content-Type: `application/json`
 ## Error Format
 
 ```json
-{
-  "detail": "human-readable error message"
-}
+{"detail": "human-readable error message"}
 ```
 
-Коды:
-- `400` бизнес-валидация
-- `404` сущность не найдена в project scope
-- `409` конфликт ограничений/дубликаты
+Типовые коды:
+- `400` validation/business rule error
+- `404` entity not found in project scope
+- `409` uniqueness/constraint conflict
 - `422` schema validation error
 
-## Shared DTO Fragments
+## Existing Endpoints (already available)
 
-### Point
+- foundation/project/node/edge/lane/road-type/connection endpoints из предыдущих этапов.
 
-```json
-{"x": 10.0, "y": 20.0}
-```
-
-### Shape
-
-```json
-[
-  {"x": 10.0, "y": 20.0},
-  {"x": 15.0, "y": 25.0}
-]
-```
-
-### Lane item
-
-```json
-{
-  "index": 0,
-  "allow": "passenger bus",
-  "disallow": "tram",
-  "speed": 13.9,
-  "width": 3.5
-}
-```
-
-`allow/disallow`:
-- хранение в БД: `TEXT`
-- формат: deduplicated space-separated
-- пересечения значений между `allow` и `disallow` запрещены
-
-## Existing Endpoints (foundation/network/road-segment-editor)
-
-- `GET /health`
-
-- `POST /projects`
-- `GET /projects`
-- `GET /projects/{project_id}`
-- `PATCH /projects/{project_id}`
-- `DELETE /projects/{project_id}`
-- `GET /projects/{project_id}/network`
-
-- `POST /projects/{project_id}/nodes`
-- `GET /projects/{project_id}/nodes`
-- `PATCH /projects/{project_id}/nodes/{node_id}`
-- `DELETE /projects/{project_id}/nodes/{node_id}`
-
-- `POST /projects/{project_id}/road-types`
-- `GET /projects/{project_id}/road-types`
-- `PATCH /projects/{project_id}/road-types/{road_type_id}`
-
-- `POST /projects/{project_id}/edges`
-- `POST /projects/{project_id}/edges/bidirectional`
-- `GET /projects/{project_id}/edges`
-- `GET /projects/{project_id}/edges/{edge_id}`
+Ключевые уже имеющиеся editor/connection endpoint:
 - `GET /projects/{project_id}/edges/{edge_id}/editor`
-- `PATCH /projects/{project_id}/edges/{edge_id}`
-- `PATCH /projects/{project_id}/edges/{edge_id}/shape`
-- `POST /projects/{project_id}/edges/{edge_id}/recalculate-length`
 - `PUT /projects/{project_id}/edges/{edge_id}/lanes`
-- `PATCH /projects/{project_id}/edges/{edge_id}/lanes/{lane_id}`
-- `POST /projects/{project_id}/edges/{edge_id}/apply-road-type`
+- `POST /projects/{project_id}/connections`
+- `GET /projects/{project_id}/nodes/{node_id}/connections`
+- `POST /projects/{project_id}/nodes/{node_id}/connections/autogenerate`
 
-## Connection Layer Endpoints
+## Intersection Editor Endpoints
 
-## POST `/projects/{project_id}/connections`
+## POST `/projects/{project_id}/intersections`
 
-Создать lane-level transition через узел.
+Создает `Intersection` поверх существующего `Node`.
 
-Request (`ConnectionCreateRequest`):
+Request (`IntersectionCreateRequest`):
 
 ```json
 {
-  "via_node_id": "uuid",
-  "from_edge_id": "uuid",
-  "to_edge_id": "uuid",
-  "from_lane_index": 0,
-  "to_lane_index": 0,
-  "uncontrolled": false
+  "node_id": "uuid",
+  "kind": "crossroad",
+  "name": "Main crossing",
+  "auto_sync": true
 }
 ```
 
-Response `201` (`ConnectionResponse`):
+Response `201` (`IntersectionResponse`):
 
 ```json
 {
   "id": "uuid",
   "project_id": "uuid",
-  "via_node_id": "uuid",
-  "from_edge_id": "uuid",
-  "to_edge_id": "uuid",
-  "from_lane_index": 0,
-  "to_lane_index": 0,
-  "uncontrolled": false,
-  "from_edge_code": "E_in",
-  "to_edge_code": "E_out",
-  "via_node_code": "N1",
-  "from_edge_name": "Incoming",
-  "to_edge_name": "Outgoing",
+  "node_id": "uuid",
+  "kind": "crossroad",
+  "name": "Main crossing",
   "created_at": "2026-03-10T00:00:00Z",
   "updated_at": "2026-03-10T00:00:00Z"
 }
 ```
 
-Валидация:
-- topology: `from_edge.to_node_id == to_edge.from_node_id == via_node_id`
-- lane indexes существуют на соответствующих edge
-- сущности принадлежат одному проекту
-- уникальность `(project_id, from_edge_id, to_edge_id, from_lane_index, to_lane_index)`
+## GET `/projects/{project_id}/intersections/{intersection_id}`
 
-## PATCH `/projects/{project_id}/connections/{connection_id}`
+Response `200`: `IntersectionResponse`.
 
-Изменить mutable-поля (`ConnectionPatchRequest`).
+## GET `/projects/{project_id}/nodes/{node_id}/intersection`
 
-Request:
+Response `200`: `IntersectionResponse`.
 
-```json
-{
-  "uncontrolled": true
-}
-```
+## PATCH `/projects/{project_id}/intersections/{intersection_id}`
 
-Response `200`: `ConnectionResponse`.
+Изменение `kind/name`.
 
-## DELETE `/projects/{project_id}/connections/{connection_id}`
-
-Удаление connection в пределах project scope.
-
-Response `204`.
-
-## GET `/projects/{project_id}/nodes/{node_id}/connections`
-
-Editor-friendly payload для узла.
-
-Response `200` (`NodeConnectionsResponse`):
+Request (`IntersectionPatchRequest`):
 
 ```json
 {
-  "node": {"id": "uuid", "code": "N1"},
-  "incoming_edges": [
-    {"id": "uuid", "code": "E_in", "name": "Incoming", "from_node_id": "uuid", "to_node_id": "uuid", "num_lanes": 2}
-  ],
-  "outgoing_edges": [
-    {"id": "uuid", "code": "E_out", "name": "Outgoing", "from_node_id": "uuid", "to_node_id": "uuid", "num_lanes": 2}
-  ],
-  "connections": [
-    {
-      "id": "uuid",
-      "project_id": "uuid",
-      "via_node_id": "uuid",
-      "from_edge_id": "uuid",
-      "to_edge_id": "uuid",
-      "from_lane_index": 0,
-      "to_lane_index": 0,
-      "uncontrolled": false,
-      "from_edge_code": "E_in",
-      "to_edge_code": "E_out",
-      "via_node_code": "N1",
-      "from_edge_name": "Incoming",
-      "to_edge_name": "Outgoing",
-      "created_at": "...",
-      "updated_at": "..."
-    }
-  ]
+  "kind": "roundabout",
+  "name": "Roundabout #1"
 }
 ```
 
-## GET `/projects/{project_id}/nodes/{node_id}/connection-candidates`
+Response `200`: `IntersectionResponse`.
 
-Диагностика входящих/исходящих пар для узла.
+## POST `/projects/{project_id}/intersections/{intersection_id}/approaches/sync`
 
-Response `200` (`ConnectionCandidatesResponse`):
+Синхронизация `IntersectionApproach` с incoming edges.
 
-```json
-{
-  "node_id": "uuid",
-  "incoming_edges": [],
-  "outgoing_edges": [],
-  "valid_pairs": [
-    {
-      "from_edge_id": "uuid",
-      "from_edge_code": "E_in",
-      "to_edge_id": "uuid",
-      "to_edge_code": "E_out",
-      "is_u_turn": false,
-      "lane_mapping_count": 2
-    }
-  ],
-  "invalid_pairs": [],
-  "diagnostics": [
-    "incoming=1, outgoing=1, candidate_pairs=1",
-    "valid_pairs=1, invalid_pairs=0",
-    "u_turn_pairs=0"
-  ]
-}
-```
-
-## POST `/projects/{project_id}/nodes/{node_id}/connections/autogenerate`
-
-Автогенерация базовых connections.
-
-Request (`ConnectionAutogenerateRequest`):
+Request (`ApproachesSyncRequest`):
 
 ```json
 {
   "add_missing_only": true,
-  "allow_u_turns": false,
-  "uncontrolled": false
+  "remove_stale": false
 }
 ```
 
-MVP semantics:
-- создаются только отсутствующие связи (`add-missing only`)
-- mapping: `0->0`, `1->1`, ... до `min(num_from_lanes, num_to_lanes)-1`
-- U-turn автоматически не генерируются, если `allow_u_turns=false`
-
-Response `200` (`ConnectionAutogenerateResponse`):
+Response `200` (`ApproachesSyncResponse`):
 
 ```json
 {
-  "node_id": "uuid",
-  "considered_pairs": 6,
-  "created_count": 4,
-  "skipped_duplicates": 2,
-  "skipped_u_turns": 1,
-  "created_connections": [],
+  "intersection_id": "uuid",
+  "created_count": 2,
+  "deleted_count": 0,
+  "stale_count": 1,
+  "approaches": [],
   "diagnostics": [
-    "incoming=2, outgoing=3, candidate_pairs=6",
-    "valid_pairs=6, invalid_pairs=0",
-    "u_turn_pairs=1",
-    "created=4",
-    "skipped_duplicates=2",
-    "skipped_u_turns=1"
+    "incoming_edges=3",
+    "created=2",
+    "stale_detected=1",
+    "stale_removed=0"
   ]
 }
 ```
 
-## Important Behavioral Rules
+## GET `/projects/{project_id}/intersections/{intersection_id}/approaches`
 
-1. `via_node_id` хранится явно и валидируется сервисом против `from_edge/to_edge` topology.
-2. `autogenerate` не удаляет существующие connection.
-3. U-turn:
-   - auto: только если `allow_u_turns=true`,
-   - manual create: разрешен при валидной topology/lane existence.
-4. Lane destructive change:
-   - если после `PUT /lanes` или `PATCH lane index` существующие connection становятся невалидными, операция отклоняется `400`.
-5. Edge delete (когда будет endpoint):
-   - связанные connection удаляются каскадно через FK (`ondelete=CASCADE`).
+Response `200`: `IntersectionApproachResponse[]`.
 
-## Typical Error Scenarios
-
-`400` topology mismatch:
+DTO shape:
 
 ```json
 {
-  "detail": "via_node_id must match shared node of from_edge/to_edge"
+  "id": "uuid",
+  "project_id": "uuid",
+  "intersection_id": "uuid",
+  "incoming_edge_id": "uuid",
+  "incoming_edge_code": "E_in",
+  "incoming_edge_name": "Incoming",
+  "order_index": 0,
+  "name": "North approach",
+  "created_at": "...",
+  "updated_at": "..."
 }
 ```
 
-`400` lane index missing:
+## POST `/projects/{project_id}/intersections/{intersection_id}/movements/sync`
+
+Синхронизация `Movement` из текущих `Connection` данного узла.
+
+Request (`MovementsSyncRequest`):
 
 ```json
 {
-  "detail": "from_lane_index=3 does not exist on edge '...', available indexes: [0, 1]"
+  "add_missing_only": true,
+  "remove_stale": false,
+  "default_is_enabled": true
 }
 ```
 
-`400` lane change would break connections:
+Response `200` (`MovementsSyncResponse`):
 
 ```json
 {
-  "detail": "Lane change would invalidate existing connections. Update/delete these connections first: ..."
+  "intersection_id": "uuid",
+  "created_count": 4,
+  "updated_count": 1,
+  "deleted_count": 0,
+  "stale_count": 2,
+  "movements": [],
+  "diagnostics": [
+    "connections=8",
+    "movements_existing=6",
+    "created=4",
+    "updated=1",
+    "stale_detected=2",
+    "stale_removed=0",
+    "skipped_without_approach=0"
+  ]
 }
 ```
 
-`404` project scope miss:
+## GET `/projects/{project_id}/intersections/{intersection_id}/movements`
+
+Response `200`: `MovementResponse[]`.
+
+DTO shape:
 
 ```json
 {
-  "detail": "Connection '...' not found in project '...'"
+  "id": "uuid",
+  "project_id": "uuid",
+  "intersection_id": "uuid",
+  "approach_id": "uuid",
+  "connection_id": "uuid",
+  "from_edge_id": "uuid",
+  "to_edge_id": "uuid",
+  "from_lane_index": 0,
+  "to_lane_index": 0,
+  "is_enabled": true,
+  "movement_kind": null,
+  "created_at": "...",
+  "updated_at": "..."
 }
 ```
 
-`409` duplicate:
+## PATCH `/projects/{project_id}/intersections/{intersection_id}/movements/{movement_id}`
+
+Включить/выключить movement и/или обновить `movement_kind`.
+
+Request (`MovementPatchRequest`):
 
 ```json
 {
-  "detail": "Connection with the same from/to edges and lane indexes already exists"
+  "is_enabled": false,
+  "movement_kind": "left"
 }
+```
+
+Response `200`: `MovementResponse`.
+
+## GET `/projects/{project_id}/intersections/{intersection_id}/editor`
+
+Полная editor-карточка.
+
+Response `200` (`IntersectionEditorResponse`):
+
+```json
+{
+  "intersection": {
+    "id": "uuid",
+    "project_id": "uuid",
+    "node_id": "uuid",
+    "kind": "crossroad",
+    "name": "Main crossing",
+    "created_at": "...",
+    "updated_at": "..."
+  },
+  "node": {
+    "id": "uuid",
+    "code": "N1",
+    "x": 100.0,
+    "y": 200.0,
+    "type": null
+  },
+  "incoming_edges": [],
+  "outgoing_edges": [],
+  "approaches": [],
+  "movements": [],
+  "diagnostics": {
+    "intersection_id": "uuid",
+    "is_valid": true,
+    "empty_approaches": [],
+    "missing_movements": [],
+    "stale_movements": [],
+    "warnings": [],
+    "errors": []
+  }
+}
+```
+
+## GET `/projects/{project_id}/intersections/{intersection_id}/validation`
+
+Response `200` (`IntersectionValidationResponse`):
+
+```json
+{
+  "intersection_id": "uuid",
+  "is_valid": false,
+  "empty_approaches": ["approach_uuid"],
+  "missing_movements": ["connection_uuid"],
+  "stale_movements": [],
+  "warnings": [],
+  "errors": [
+    "Some approaches have no enabled movements",
+    "Some node connections are not wrapped into movements"
+  ]
+}
+```
+
+## Important Semantics (Intersection Layer)
+
+1. `Intersection` — отдельная конфигурация поверх `Node`, не замена `Node`.
+2. `Movement` source of truth:
+   - `connection_id` первичен,
+   - `from/to edge + lane` в movement хранятся как editor-friendly snapshot.
+3. `Approaches sync`:
+   - default: add missing only,
+   - stale approaches удаляются только при `remove_stale=true` или full sync (`add_missing_only=false`).
+4. `Movements sync`:
+   - default: create missing + update mapping,
+   - stale movements по умолчанию сохраняются и видны в diagnostics/validation,
+   - stale удаляются только при `remove_stale=true` или full sync.
+5. Disable semantics:
+   - запрет маневра делается через `is_enabled=false`, movement не удаляется.
+6. Underlying deletion behavior:
+   - при удалении `Connection` связанный `Movement` удаляется каскадно FK.
+
+## Typical Error Cases
+
+`400` invalid node for intersection:
+
+```json
+{"detail": "Intersection node must have at least one incoming and one outgoing edge"}
+```
+
+`400` invalid movement patch:
+
+```json
+{"detail": "PATCH payload must include at least one field"}
+```
+
+`404` not found in project scope:
+
+```json
+{"detail": "Intersection '...' not found in project '...'"}
+```
+
+`409` duplicates:
+
+```json
+{"detail": "Intersection already exists for node '...'"}
 ```
