@@ -1,5 +1,6 @@
 import {useCallback, useState} from 'react';
 import type {ApiLogEntry} from '@/types/editor';
+import {makeUuidLike} from '@/utils/id';
 
 export function useApiLog() {
   const [logs, setLogs] = useState<ApiLogEntry[]>([]);
@@ -7,7 +8,7 @@ export function useApiLog() {
   const pushLog = useCallback((entry: Omit<ApiLogEntry, 'id' | 'timestamp'>) => {
     const enriched: ApiLogEntry = {
       ...entry,
-      id: crypto.randomUUID(),
+      id: makeUuidLike(),
       timestamp: new Date().toISOString(),
     };
 
