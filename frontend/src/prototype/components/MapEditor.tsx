@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+﻿import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { MapContainer, TileLayer, Marker, Polyline, Pane, useMapEvents, Tooltip, useMap } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
@@ -26,7 +26,12 @@ import {
   buildSimulationGraph,
   reconcileCars,
   type CarState,
+  type SimulationGraphRuntime,
 } from '../utils/vehicleSimulation';
+import {
+  MAX_EDGE_CAPACITY,
+  calculateNetworkCoefficientSummary,
+} from '../utils/edgeCoefficients';
 
 // Fix leaflet default icon issue
 delete (L.Icon.Default.prototype as any)._getIconUrl;
@@ -109,14 +114,90 @@ const getDirectionArrowIcon = (angleDeg: number, zoom: number) => {
   });
 };
 
-const carIcon = L.divIcon({
-  className: 'custom-car-icon',
-  html: '<div style="background-color: #16a34a; width: 10px; height: 16px; border-radius: 5px; border: 2px solid white; box-shadow: 0 0 4px rgba(0,0,0,0.55);"></div>',
-  iconSize: [10, 16],
-  iconAnchor: [5, 8]
-});
+const CAR_ICON_SIZE: [number, number] = [24, 40];
+const CAR_ICON_ANCHOR: [number, number] = [12, 20];
+const CAR_ICON_SVG = `
+  <svg width="24" height="40" viewBox="0 0 20 34" xmlns="http://www.w3.org/2000/svg" style="filter: drop-shadow(0 1px 2px rgba(0,0,0,0.42));">
+    <rect x="4" y="2.5" width="12" height="29" rx="4.8" fill="#16a34a" stroke="#ffffff" stroke-width="1.25"/>
+    <rect x="6.4" y="6.2" width="7.2" height="6.6" rx="1.6" fill="#e6f4ff" stroke="#9ca3af" stroke-width="0.5"/>
+    <rect x="6.4" y="14.2" width="7.2" height="7.8" rx="1.7" fill="#dbeafe" stroke="#9ca3af" stroke-width="0.5"/>
+    <rect x="6.7" y="24" width="6.6" height="3.6" rx="1.2" fill="#14532d" opacity="0.28"/>
+    <rect x="2" y="7" width="2.5" height="6.6" rx="1.1" fill="#111827"/>
+    <rect x="2" y="20.4" width="2.5" height="6.6" rx="1.1" fill="#111827"/>
+    <rect x="15.5" y="7" width="2.5" height="6.6" rx="1.1" fill="#111827"/>
+    <rect x="15.5" y="20.4" width="2.5" height="6.6" rx="1.1" fill="#111827"/>
+    <rect x="8.2" y="3.6" width="3.6" height="1.4" rx="0.5" fill="#f8fafc" opacity="0.95"/>
+    <rect x="8.1" y="29.1" width="3.8" height="1.5" rx="0.6" fill="#dc2626" opacity="0.9"/>
+  </svg>
+`;
+const carIconCache = new Map<number, L.DivIcon>();
 
-const INTERSECTION_CONNECTION_NAMES = new Set(['Intersection Connection', 'Соединение перекрёстка']);
+const normalizeAngle = (angleDeg: number): number => {
+  const normalized = angleDeg % 360;
+  return normalized < 0 ? normalized + 360 : normalized;
+};
+
+const toLaneHeadingAngle = (
+  from: { lat: number; lng: number },
+  to: { lat: number; lng: number },
+): number | null => {
+  const dx = (to.lng - from.lng) * Math.cos((from.lat * Math.PI) / 180);
+  const dy = to.lat - from.lat;
+  if (Math.abs(dx) < 1e-12 && Math.abs(dy) < 1e-12) return null;
+  return (Math.atan2(dx, dy) * 180) / Math.PI;
+};
+
+const getCarDirectionAngle = (car: CarState, graph: SimulationGraphRuntime): number => {
+  const edge = graph.directedEdges[car.edgeId];
+  if (!edge || edge.path.length < 2) return 0;
+
+  const distanceOnEdge = Math.max(0, Math.min(edge.effectiveLength, car.distanceOnEdge));
+  const geometricDistance =
+    edge.totalLength > 1e-6 ? (distanceOnEdge / edge.effectiveLength) * edge.totalLength : 0;
+
+  let passedLength = 0;
+  for (let i = 0; i < edge.path.length - 1; i++) {
+    const segmentLength = edge.segmentLengths[i] ?? 0;
+    const from = edge.path[i];
+    const to = edge.path[i + 1];
+    const angle = toLaneHeadingAngle(from, to);
+
+    if (geometricDistance <= passedLength + segmentLength + 1e-6) {
+      if (angle !== null) return normalizeAngle(angle);
+    }
+    if (angle !== null && i === edge.path.length - 2) return normalizeAngle(angle);
+
+    passedLength += segmentLength;
+  }
+
+  for (let i = 0; i < edge.path.length - 1; i++) {
+    const angle = toLaneHeadingAngle(edge.path[i], edge.path[i + 1]);
+    if (angle !== null) return normalizeAngle(angle);
+  }
+
+  return 0;
+};
+
+const getCarIcon = (angleDeg: number): L.DivIcon => {
+  const roundedAngle = Math.round(normalizeAngle(angleDeg));
+  const cached = carIconCache.get(roundedAngle);
+  if (cached) return cached;
+
+  const icon = L.divIcon({
+    className: 'custom-car-icon',
+    html: `<div style="width:${CAR_ICON_SIZE[0]}px;height:${CAR_ICON_SIZE[1]}px;display:flex;align-items:center;justify-content:center;transform:rotate(${roundedAngle}deg);transform-origin:50% 50%;">${CAR_ICON_SVG}</div>`,
+    iconSize: CAR_ICON_SIZE,
+    iconAnchor: CAR_ICON_ANCHOR,
+  });
+  carIconCache.set(roundedAngle, icon);
+  return icon;
+};
+
+const INTERSECTION_CONNECTION_NAMES = new Set([
+  'Intersection Connection',
+  'Соединение перекрёстка',
+  'РЎРѕРµРґРёРЅРµРЅРёРµ РїРµСЂРµРєСЂС‘СЃС‚РєР°',
+]);
 const isIntersectionConnection = (edge: Edge) =>
   typeof edge.name === 'string' && INTERSECTION_CONNECTION_NAMES.has(edge.name);
 
@@ -131,9 +212,50 @@ const fromLocalXY = (x: number, y: number, refLat: number): [number, number] => 
 ];
 
 const DEFAULT_SPEED_LIMIT = 60;
+const DEFAULT_LANE_WIDTH = 3.5;
+const DEFAULT_TURN_RADIUS = 0;
+const DEFAULT_PEDESTRIAN_INTENSITY = 0;
+const CROSSING_PEDESTRIAN_INTENSITY = 1;
+const DEFAULT_ROAD_SLOPE = 0;
+const DEFAULT_PARKING_TYPE: 1 | 2 | 3 = 1;
+const DEFAULT_STOP_TYPE: 1 | 2 | 3 = 1;
+const BUS_STOP_TYPE: 1 | 2 | 3 = 2;
+const DEFAULT_MANEUVER_TYPE: 1 | 2 | 3 | 4 | 5 = 1;
+const DEFAULT_TURN_PERCENTAGE = 20;
 const CROSSING_RADIUS_METERS = 10;
 const BUS_STOP_RADIUS_METERS = 15;
 const SPEED_LIMIT_DETECTION_RADIUS_METERS = 15;
+
+const normalizeEdgeMode = (value: unknown): 'auto' | 'manual' =>
+  value === 'manual' ? 'manual' : 'auto';
+
+const normalizeLaneWidth = (value: unknown): number =>
+  typeof value === 'number' && Number.isFinite(value) && value > 0 ? value : DEFAULT_LANE_WIDTH;
+
+const normalizeTurnRadius = (value: unknown): number =>
+  typeof value === 'number' && Number.isFinite(value) && value >= 0 ? value : DEFAULT_TURN_RADIUS;
+
+const normalizePedestrianIntensityValue = (value: unknown): number =>
+  typeof value === 'number' && Number.isFinite(value) && value >= 0
+    ? Math.round(value)
+    : DEFAULT_PEDESTRIAN_INTENSITY;
+
+const normalizeRoadSlope = (value: unknown): number =>
+  typeof value === 'number' && Number.isFinite(value) ? value : DEFAULT_ROAD_SLOPE;
+
+const normalizeParkingType = (value: unknown): 1 | 2 | 3 =>
+  value === 2 || value === 3 ? value : DEFAULT_PARKING_TYPE;
+
+const normalizeStopType = (value: unknown): 1 | 2 | 3 =>
+  value === 2 || value === 3 ? value : DEFAULT_STOP_TYPE;
+
+const normalizeManeuverType = (value: unknown): 1 | 2 | 3 | 4 | 5 =>
+  value === 2 || value === 3 || value === 4 || value === 5 ? value : DEFAULT_MANEUVER_TYPE;
+
+const normalizeTurnPercentage = (value: unknown): number =>
+  typeof value === 'number' && Number.isFinite(value) && value >= 0
+    ? value
+    : DEFAULT_TURN_PERCENTAGE;
 
 type EdgeComputedProps = {
   crossroad: boolean;
@@ -296,11 +418,34 @@ const normalizeNetworkState = (networkState: NetworkState): NetworkState => {
       busStop: false,
       speedLimit: DEFAULT_SPEED_LIMIT,
     };
+    const isHiddenIntersectionConnection = isIntersectionConnection(edge);
+    const pedestrianIntensityMode = normalizeEdgeMode(edge.pedestrianIntensityMode);
+    const stopTypeMode = normalizeEdgeMode(edge.stopTypeMode);
+    const autoPedestrianIntensity = props.crossroad ? CROSSING_PEDESTRIAN_INTENSITY : DEFAULT_PEDESTRIAN_INTENSITY;
+    const autoStopType = props.busStop ? BUS_STOP_TYPE : DEFAULT_STOP_TYPE;
+
     normalizedEdges[edgeId] = {
       ...edge,
+      isOneWay: isHiddenIntersectionConnection ? true : edge.isOneWay,
       crossroad: props.crossroad,
       busStop: props.busStop,
       speedLimit: props.speedLimit,
+      laneWidth: normalizeLaneWidth(edge.laneWidth),
+      turnRadius: normalizeTurnRadius(edge.turnRadius),
+      pedestrianIntensityMode,
+      pedestrianIntensity:
+        pedestrianIntensityMode === 'auto'
+          ? autoPedestrianIntensity
+          : normalizePedestrianIntensityValue(edge.pedestrianIntensity),
+      roadSlope: normalizeRoadSlope(edge.roadSlope),
+      parkingType: normalizeParkingType(edge.parkingType),
+      stopTypeMode,
+      stopType:
+        stopTypeMode === 'auto'
+          ? autoStopType
+          : normalizeStopType(edge.stopType),
+      maneuverType: normalizeManeuverType(edge.maneuverType),
+      turnPercentage: normalizeTurnPercentage(edge.turnPercentage),
     };
   });
 
@@ -438,6 +583,30 @@ export function MapEditor() {
   const [cars, setCars] = useState<CarState[]>([]);
   const simulationRafRef = useRef<number | null>(null);
   const simulationLastTsRef = useRef<number | null>(null);
+  const selectedEdge = selectedEdgeId ? state.edges[selectedEdgeId] : null;
+  const coefficientSummary = useMemo(() => calculateNetworkCoefficientSummary(state), [state]);
+  const selectedEdgeMetrics = selectedEdge ? coefficientSummary.edgeMetrics[selectedEdge.id] : undefined;
+
+  useEffect(() => {
+    if (selectedEdgeId && !state.edges[selectedEdgeId]) {
+      setSelectedEdgeId(null);
+    }
+  }, [selectedEdgeId, state.edges]);
+
+  const updateEdgeById = useCallback(
+    (edgeId: string, updater: (edge: Edge) => Edge) => {
+      const edge = state.edges[edgeId];
+      if (!edge) return;
+      pushState({
+        ...state,
+        edges: {
+          ...state.edges,
+          [edgeId]: updater(edge),
+        },
+      });
+    },
+    [pushState, state],
+  );
 
   const nodeDirectionAngles = useMemo(() => {
     const angles: Record<string, number> = {};
@@ -541,7 +710,7 @@ export function MapEditor() {
       const stripeCount = Math.max(2, laneCount * 2);
       const halfSpanAcrossRoad = Math.max(3.2, laneCount * 1.45);
       const stripeSpacing = stripeCount > 1 ? (halfSpanAcrossRoad * 2) / (stripeCount - 1) : 0;
-      const stripeHalfLength = 0.65;
+      const stripeHalfLength = 1.05;
       for (let i = 0; i < stripeCount; i++) {
         const offsetAcrossRoad = (i - (stripeCount - 1) / 2) * stripeSpacing;
         const sx = p.x + progressDirX * offsetAcrossRoad - stripeDirX * stripeHalfLength;
@@ -566,8 +735,8 @@ export function MapEditor() {
   }, [state.edges, state.nodes]);
 
   const zebraScale = Math.max(0.45, Math.min(1, (currentZoom - 9) / 4));
-  const zebraOuterWeight = Math.max(2, 4 * zebraScale);
-  const zebraInnerWeight = Math.max(1, 2.6 * zebraScale);
+  const zebraOuterWeight = Math.max(2.8, 6.2 * zebraScale);
+  const zebraInnerWeight = Math.max(1.7, 4.2 * zebraScale);
 
   const simulationGraph = useMemo(
     () =>
@@ -576,6 +745,14 @@ export function MapEditor() {
       }),
     [state],
   );
+
+  const carDirectionAngles = useMemo(() => {
+    const angles: Record<string, number> = {};
+    cars.forEach((car) => {
+      angles[car.id] = getCarDirectionAngle(car, simulationGraph);
+    });
+    return angles;
+  }, [cars, simulationGraph]);
 
   useEffect(() => {
     setCars((prevCars) =>
@@ -666,7 +843,6 @@ export function MapEditor() {
       });
     } else if (mode === 'SELECT') {
       setSelectedNodeId(null);
-      setSelectedEdgeId(null);
     }
   };
 
@@ -718,7 +894,6 @@ export function MapEditor() {
       if (selectedNodeId === id) setSelectedNodeId(null);
     } else if (mode === 'SELECT') {
       setSelectedNodeId(id);
-      setSelectedEdgeId(null);
     } else if (mode === 'ADD_EDGE') {
       if (!selectedNodeId) {
         setSelectedNodeId(id);
@@ -731,7 +906,17 @@ export function MapEditor() {
           isOneWay: true, // Lanes are one-way by default
           crossroad: false,
           busStop: false,
-          speedLimit: DEFAULT_SPEED_LIMIT
+          speedLimit: DEFAULT_SPEED_LIMIT,
+          laneWidth: DEFAULT_LANE_WIDTH,
+          turnRadius: DEFAULT_TURN_RADIUS,
+          pedestrianIntensity: DEFAULT_PEDESTRIAN_INTENSITY,
+          pedestrianIntensityMode: 'auto',
+          roadSlope: DEFAULT_ROAD_SLOPE,
+          parkingType: DEFAULT_PARKING_TYPE,
+          stopType: DEFAULT_STOP_TYPE,
+          stopTypeMode: 'auto',
+          maneuverType: DEFAULT_MANEUVER_TYPE,
+          turnPercentage: DEFAULT_TURN_PERCENTAGE,
         };
         pushState({
           ...state,
@@ -779,9 +964,9 @@ export function MapEditor() {
       delete newEdges[id];
       pushState({ ...state, edges: newEdges });
       if (selectedEdgeId === id) setSelectedEdgeId(null);
-    } else if (mode === 'SELECT') {
+    } else {
       setSelectedEdgeId(id);
-      setSelectedNodeId(null);
+      if (mode === 'SELECT') setSelectedNodeId(null);
     }
   };
   
@@ -891,15 +1076,35 @@ export function MapEditor() {
     );
   };
   
+  const parseFloatSafe = (value: string): number | null => {
+    const parsed = Number.parseFloat(value);
+    return Number.isFinite(parsed) ? parsed : null;
+  };
+
+  const parseIntSafe = (value: string): number | null => {
+    const parsed = Number.parseInt(value, 10);
+    return Number.isFinite(parsed) ? parsed : null;
+  };
+
+  const formatCoefficient = (value: number | null | undefined) =>
+    typeof value === 'number' && Number.isFinite(value) ? value.toFixed(4) : '-';
+
+  const formatCapacity = (value: number | null | undefined) =>
+    typeof value === 'number' && Number.isFinite(value) ? value.toFixed(1) : '-';
+
+  const formatSpeed = (value: number | null | undefined) =>
+    typeof value === 'number' && Number.isFinite(value) ? value.toFixed(1) : '-';
+
+  const updateSelectedEdge = useCallback(
+    (updater: (edge: Edge) => Edge) => {
+      if (!selectedEdgeId) return;
+      updateEdgeById(selectedEdgeId, updater);
+    },
+    [selectedEdgeId, updateEdgeById],
+  );
+
   const toggleOneWay = (edgeId: string) => {
-    const edge = state.edges[edgeId];
-    pushState({
-      ...state,
-      edges: {
-        ...state.edges,
-        [edgeId]: { ...edge, isOneWay: !edge.isOneWay }
-      }
-    });
+    updateEdgeById(edgeId, (edge) => ({ ...edge, isOneWay: !edge.isOneWay }));
   };
 
   const handleCarCountInputChange = (value: string) => {
@@ -946,14 +1151,13 @@ export function MapEditor() {
         onExportOsm={exportOsm}
         onValidate={runValidation}
         validationResult={validationResult}
-        selectedEdge={selectedEdgeId ? state.edges[selectedEdgeId] : null}
-        toggleOneWay={toggleOneWay}
         carCountInput={carCountInput}
         onCarCountInputChange={handleCarCountInputChange}
         onApplyCarCount={applyCarCount}
         onClearCars={clearCars}
         activeCarCount={cars.length}
         carCountError={carInputError}
+        coefficientSummary={coefficientSummary}
       />
       
       <div className="flex-1 relative">
@@ -991,6 +1195,7 @@ export function MapEditor() {
             const isSelected = selectedEdgeId === edge.id;
             const isIntersectionConnectionEdge = isIntersectionConnection(edge);
             const speedLimit = edge.speedLimit;
+            const edgeMetrics = coefficientSummary.edgeMetrics[edge.id];
 
             if (isIntersectionConnectionEdge) {
               return (
@@ -1045,10 +1250,42 @@ export function MapEditor() {
                   }}
                 >
                   <Tooltip sticky direction="center">
-                    <div className="font-bold">{edge.name || 'Ребро'}</div>
-                    <div className="text-xs text-gray-700 font-medium">Ограничение: {speedLimit} км/ч</div>
-                    {hasCrossing && <div className="text-xs text-amber-700 font-bold">Рядом пешеходный переход (10 м)</div>}
-                    {hasBusStop && <div className="text-xs text-blue-700 font-bold">Рядом остановка (15 м)</div>}
+                    <div className="font-bold">{edge.name || 'Edge'}</div>
+                    <div className="text-xs text-gray-700 font-medium">Speed limit: {speedLimit} km/h</div>
+                    <div className="text-xs text-gray-700">Lane width: {edge.laneWidth} m</div>
+                    <div className="text-xs text-gray-700">Turn radius: {edge.turnRadius} m</div>
+                    <div className="text-xs text-gray-700">Slope: {edge.roadSlope}</div>
+                    <div className="text-xs text-gray-700">Parking type: {edge.parkingType}</div>
+                    <div className="text-xs text-gray-700">Maneuver type: {edge.maneuverType}</div>
+                    <div className="text-xs text-gray-700">Turn percentage: {edge.turnPercentage}</div>
+                    <div className="text-xs text-gray-700">Pedestrian intensity: {edge.pedestrianIntensity} (mode: {edge.pedestrianIntensityMode})</div>
+                    <div className="text-xs text-gray-700">Stop type: {edge.stopType} (mode: {edge.stopTypeMode})</div>
+                    {edgeMetrics && (
+                      <div className="mt-1 rounded border border-gray-200 bg-gray-50 p-1.5">
+                        <div className="text-[11px] font-semibold text-gray-700">Coefficients</div>
+                        <div className="text-[11px] text-gray-700">
+                          width {formatCoefficient(edgeMetrics.coefficients.width)} | speed {formatCoefficient(edgeMetrics.coefficients.speed)} | radius {formatCoefficient(edgeMetrics.coefficients.radius)}
+                        </div>
+                        <div className="text-[11px] text-gray-700">
+                          crosswalk {formatCoefficient(edgeMetrics.coefficients.crosswalk)} | slope {formatCoefficient(edgeMetrics.coefficients.slope)}
+                        </div>
+                        <div className="text-[11px] text-gray-700">
+                          parking {formatCoefficient(edgeMetrics.coefficients.parking)} | stop {formatCoefficient(edgeMetrics.coefficients.busStop)} | maneuver {formatCoefficient(edgeMetrics.coefficients.maneuver)}
+                        </div>
+                        <div className="text-[11px] font-semibold text-gray-800">
+                          total {formatCoefficient(edgeMetrics.totalCoefficient)} | capacity {formatCapacity(edgeMetrics.finalCapacity)} / {MAX_EDGE_CAPACITY}
+                        </div>
+                        <div className="text-[11px] font-semibold text-gray-800">
+                          final speed {formatSpeed(edgeMetrics.finalSpeed)} km/h
+                        </div>
+                      </div>
+                    )}
+                    <div className={`text-xs font-medium ${hasCrossing ? 'text-amber-700' : 'text-gray-700'}`}>
+                      Crossing nearby: {hasCrossing ? 'yes (10 m)' : 'no'}
+                    </div>
+                    <div className={`text-xs font-medium ${hasBusStop ? 'text-blue-700' : 'text-gray-700'}`}>
+                      Bus stop nearby: {hasBusStop ? 'yes (15 m)' : 'no'}
+                    </div>
                     {edge.tags && Object.entries(edge.tags).map(([k, v]) => (
                       <div key={k} className="text-xs">{k}: {v}</div>
                     ))}
@@ -1103,7 +1340,7 @@ export function MapEditor() {
               <Marker
                 key={car.id}
                 position={[car.lat, car.lng]}
-                icon={carIcon}
+                icon={getCarIcon(carDirectionAngles[car.id] ?? 0)}
                 interactive={false}
                 keyboard={false}
               />
@@ -1148,10 +1385,303 @@ export function MapEditor() {
             {mode === 'ADD_EDGE' && "Кликните по одному узлу, затем по другому, чтобы соединить их."}
             {mode === 'DELETE' && "Кликните по узлам/рёбрам/точкам, чтобы удалить."}
           </p>
-          <p className="mt-1 text-xs font-medium text-cyan-700">
-            Dashed cyan lines show hidden intersection links.
-          </p>
         </div>
+
+        {selectedEdge && !isIntersectionConnection(selectedEdge) && (
+          <div className="absolute top-4 left-4 z-[1100] w-[min(92vw,420px)] max-h-[calc(100vh-2rem)] overflow-y-auto rounded-xl border border-blue-200 bg-white/95 shadow-xl backdrop-blur-sm">
+            <div className="flex items-start justify-between gap-3 border-b border-blue-100 bg-blue-50/70 px-4 py-3">
+              <div>
+                <h3 className="text-sm font-semibold text-blue-900">Параметры ребра</h3>
+                <p className="text-xs text-blue-800">{selectedEdge.name || selectedEdge.id}</p>
+              </div>
+              <button
+                onClick={() => setSelectedEdgeId(null)}
+                className="h-7 w-7 rounded-md border border-blue-200 bg-white text-blue-700 hover:bg-blue-100"
+                aria-label="Close edge editor"
+                title="Закрыть"
+              >
+                ×
+              </button>
+            </div>
+
+            <div className="space-y-3 p-4 text-sm">
+              <label className="flex items-center gap-2 text-gray-700">
+                <input
+                  type="checkbox"
+                  checked={selectedEdge.isOneWay}
+                  onChange={() => toggleOneWay(selectedEdge.id)}
+                  className="rounded border-gray-300 text-blue-600 focus:ring-blue-500"
+                />
+                Односторонняя полоса
+              </label>
+
+              <label className="block">
+                <span className="mb-1 block text-xs font-medium text-gray-600">Ограничение скорости, км/ч (auto)</span>
+                <input
+                  type="number"
+                  value={selectedEdge.speedLimit}
+                  readOnly
+                  className="w-full rounded-md border border-gray-200 bg-gray-100 px-2 py-1.5 text-gray-700"
+                />
+              </label>
+
+              <div className="rounded-md border border-gray-200 bg-slate-50 px-3 py-2.5">
+                <p className="text-xs font-medium text-gray-700">
+                  Пешеходный переход рядом: {selectedEdge.crossroad ? 'да (10 м)' : 'нет'}
+                </p>
+                <p className="mt-1 text-xs font-medium text-gray-700">
+                  Автобусная остановка рядом: {selectedEdge.busStop ? 'да (15 м)' : 'нет'}
+                </p>
+                {selectedEdge.tags && Object.entries(selectedEdge.tags).length > 0 && (
+                  <div className="mt-2 border-t border-slate-200 pt-2">
+                    <p className="mb-1 text-xs font-semibold text-slate-700">Теги ребра:</p>
+                    <div className="max-h-24 overflow-auto pr-1">
+                      {Object.entries(selectedEdge.tags).map(([k, v]) => (
+                        <p key={k} className="text-[11px] text-slate-700">
+                          {k}: {v}
+                        </p>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              <label className="block">
+                <span className="mb-1 block text-xs font-medium text-gray-600">Ширина полосы, м</span>
+                <input
+                  type="number"
+                  min={0.1}
+                  step={0.1}
+                  value={selectedEdge.laneWidth}
+                  onChange={(e) => {
+                    const parsed = parseFloatSafe(e.target.value);
+                    if (parsed === null || parsed <= 0) return;
+                    updateSelectedEdge((edge) => ({ ...edge, laneWidth: parsed }));
+                  }}
+                  className="w-full rounded-md border border-gray-300 px-2 py-1.5 text-gray-800 focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-200"
+                />
+              </label>
+
+              <label className="block">
+                <span className="mb-1 block text-xs font-medium text-gray-600">Радиус поворота, м</span>
+                <input
+                  type="number"
+                  min={0}
+                  step={0.1}
+                  value={selectedEdge.turnRadius}
+                  onChange={(e) => {
+                    const parsed = parseFloatSafe(e.target.value);
+                    if (parsed === null || parsed < 0) return;
+                    updateSelectedEdge((edge) => ({ ...edge, turnRadius: parsed }));
+                  }}
+                  className="w-full rounded-md border border-gray-300 px-2 py-1.5 text-gray-800 focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-200"
+                />
+              </label>
+
+              <label className="block">
+                <span className="mb-1 block text-xs font-medium text-gray-600">Уклон дороги</span>
+                <input
+                  type="number"
+                  step={0.1}
+                  value={selectedEdge.roadSlope}
+                  onChange={(e) => {
+                    const parsed = parseFloatSafe(e.target.value);
+                    if (parsed === null) return;
+                    updateSelectedEdge((edge) => ({ ...edge, roadSlope: parsed }));
+                  }}
+                  className="w-full rounded-md border border-gray-300 px-2 py-1.5 text-gray-800 focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-200"
+                />
+              </label>
+
+              <label className="block">
+                <span className="mb-1 block text-xs font-medium text-gray-600">Тип парковки</span>
+                <select
+                  value={selectedEdge.parkingType}
+                  onChange={(e) => {
+                    const parsed = parseIntSafe(e.target.value);
+                    if (parsed !== 1 && parsed !== 2 && parsed !== 3) return;
+                    updateSelectedEdge((edge) => ({ ...edge, parkingType: parsed }));
+                  }}
+                  className="w-full rounded-md border border-gray-300 bg-white px-2 py-1.5 text-gray-800 focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-200"
+                >
+                  <option value={1}>1</option>
+                  <option value={2}>2</option>
+                  <option value={3}>3</option>
+                </select>
+              </label>
+
+              <label className="block">
+                <span className="mb-1 block text-xs font-medium text-gray-600">Тип маневра</span>
+                <select
+                  value={selectedEdge.maneuverType}
+                  onChange={(e) => {
+                    const parsed = parseIntSafe(e.target.value);
+                    if (parsed !== 1 && parsed !== 2 && parsed !== 3 && parsed !== 4 && parsed !== 5) return;
+                    updateSelectedEdge((edge) => ({ ...edge, maneuverType: parsed }));
+                  }}
+                  className="w-full rounded-md border border-gray-300 bg-white px-2 py-1.5 text-gray-800 focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-200"
+                >
+                  <option value={1}>1</option>
+                  <option value={2}>2</option>
+                  <option value={3}>3</option>
+                  <option value={4}>4</option>
+                  <option value={5}>5</option>
+                </select>
+              </label>
+
+              <label className="block">
+                <span className="mb-1 block text-xs font-medium text-gray-600">Доля поворачивающих (0.2 или 20)</span>
+                <input
+                  type="number"
+                  min={0}
+                  step={0.1}
+                  value={selectedEdge.turnPercentage}
+                  onChange={(e) => {
+                    const parsed = parseFloatSafe(e.target.value);
+                    if (parsed === null || parsed < 0) return;
+                    updateSelectedEdge((edge) => ({ ...edge, turnPercentage: parsed }));
+                  }}
+                  className="w-full rounded-md border border-gray-300 px-2 py-1.5 text-gray-800 focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-200"
+                />
+                <p className="mt-1 text-[11px] text-gray-500">
+                  Нормализовано для формулы: {selectedEdgeMetrics ? `${(selectedEdgeMetrics.normalizedTurnPercentage * 100).toFixed(1)}%` : '-'}
+                </p>
+              </label>
+
+              <div className="rounded-md border border-gray-200 p-2.5">
+                <div className="mb-2 flex items-center justify-between">
+                  <span className="text-xs font-medium text-gray-600">Интенсивность пешеходов, чел/ч</span>
+                  <div className="flex gap-1">
+                    <button
+                      onClick={() =>
+                        updateSelectedEdge((edge) => ({
+                          ...edge,
+                          pedestrianIntensityMode: 'auto',
+                        }))
+                      }
+                      className={`rounded px-2 py-1 text-xs ${
+                        selectedEdge.pedestrianIntensityMode === 'auto'
+                          ? 'bg-blue-600 text-white'
+                          : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                      }`}
+                    >
+                      auto
+                    </button>
+                    <button
+                      onClick={() =>
+                        updateSelectedEdge((edge) => ({
+                          ...edge,
+                          pedestrianIntensityMode: 'manual',
+                        }))
+                      }
+                      className={`rounded px-2 py-1 text-xs ${
+                        selectedEdge.pedestrianIntensityMode === 'manual'
+                          ? 'bg-blue-600 text-white'
+                          : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                      }`}
+                    >
+                      manual
+                    </button>
+                  </div>
+                </div>
+                <input
+                  type="number"
+                  min={0}
+                  step={1}
+                  value={selectedEdge.pedestrianIntensity}
+                  onChange={(e) => {
+                    const parsed = parseIntSafe(e.target.value);
+                    if (parsed === null || parsed < 0) return;
+                    updateSelectedEdge((edge) => ({
+                      ...edge,
+                      pedestrianIntensity: parsed,
+                      pedestrianIntensityMode: 'manual',
+                    }));
+                  }}
+                  className="w-full rounded-md border border-gray-300 px-2 py-1.5 text-gray-800"
+                />
+              </div>
+
+              <div className="rounded-md border border-gray-200 p-2.5">
+                <div className="mb-2 flex items-center justify-between">
+                  <span className="text-xs font-medium text-gray-600">Тип остановки</span>
+                  <div className="flex gap-1">
+                    <button
+                      onClick={() =>
+                        updateSelectedEdge((edge) => ({
+                          ...edge,
+                          stopTypeMode: 'auto',
+                        }))
+                      }
+                      className={`rounded px-2 py-1 text-xs ${
+                        selectedEdge.stopTypeMode === 'auto'
+                          ? 'bg-blue-600 text-white'
+                          : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                      }`}
+                    >
+                      auto
+                    </button>
+                    <button
+                      onClick={() =>
+                        updateSelectedEdge((edge) => ({
+                          ...edge,
+                          stopTypeMode: 'manual',
+                        }))
+                      }
+                      className={`rounded px-2 py-1 text-xs ${
+                        selectedEdge.stopTypeMode === 'manual'
+                          ? 'bg-blue-600 text-white'
+                          : 'bg-gray-100 text-gray-700 hover:bg-gray-200'
+                      }`}
+                    >
+                      manual
+                    </button>
+                  </div>
+                </div>
+                <select
+                  value={selectedEdge.stopType}
+                  onChange={(e) => {
+                    const parsed = parseIntSafe(e.target.value);
+                    if (parsed !== 1 && parsed !== 2 && parsed !== 3) return;
+                    updateSelectedEdge((edge) => ({
+                      ...edge,
+                      stopType: parsed,
+                      stopTypeMode: 'manual',
+                    }));
+                  }}
+                  className="w-full rounded-md border border-gray-300 bg-white px-2 py-1.5 text-gray-800"
+                >
+                  <option value={1}>1</option>
+                  <option value={2}>2</option>
+                  <option value={3}>3</option>
+                </select>
+              </div>
+
+              {selectedEdgeMetrics && (
+                <div className="rounded-md border border-blue-200 bg-blue-50/50 p-2.5">
+                  <p className="mb-2 text-xs font-semibold text-blue-900">Коэффициенты (py_code)</p>
+                  <div className="grid grid-cols-2 gap-x-3 gap-y-1 text-[11px] text-blue-900">
+                    <span>Ширина: {formatCoefficient(selectedEdgeMetrics.coefficients.width)}</span>
+                    <span>Скорость: {formatCoefficient(selectedEdgeMetrics.coefficients.speed)}</span>
+                    <span>Радиус: {formatCoefficient(selectedEdgeMetrics.coefficients.radius)}</span>
+                    <span>Переход: {formatCoefficient(selectedEdgeMetrics.coefficients.crosswalk)}</span>
+                    <span>Уклон: {formatCoefficient(selectedEdgeMetrics.coefficients.slope)}</span>
+                    <span>Парковка: {formatCoefficient(selectedEdgeMetrics.coefficients.parking)}</span>
+                    <span>Остановка: {formatCoefficient(selectedEdgeMetrics.coefficients.busStop)}</span>
+                    <span>Манёвр: {formatCoefficient(selectedEdgeMetrics.coefficients.maneuver)}</span>
+                  </div>
+                  <div className="mt-2 border-t border-blue-200 pt-2 text-xs font-semibold text-blue-950">
+                    <div>Общий коэффициент: {formatCoefficient(selectedEdgeMetrics.totalCoefficient)}</div>
+                    <div>
+                      Итоговая пропускная способность: {formatCapacity(selectedEdgeMetrics.finalCapacity)} / {MAX_EDGE_CAPACITY}
+                    </div>
+                    <div>Итоговая скорость: {formatSpeed(selectedEdgeMetrics.finalSpeed)} км/ч</div>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
 
         {speedLimitDialogPosition && (
           <div className="absolute inset-0 z-[1200] flex items-center justify-center bg-black/30">
@@ -1207,3 +1737,5 @@ export function MapEditor() {
     </div>
   );
 }
+
+
