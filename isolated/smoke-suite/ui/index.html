@@ -1,0 +1,319 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Notes API Smoke Suite</title>
+    <style>
+      :root {
+        color-scheme: dark;
+        font-family: "IBM Plex Sans", "Segoe UI", sans-serif;
+      }
+      * { box-sizing: border-box; }
+      body {
+        margin: 0;
+        min-height: 100vh;
+        color: #e2e8f0;
+        background: radial-gradient(circle at 15% 10%, #1f2937, #0f172a 50%, #020617 100%);
+      }
+      main {
+        max-width: 1200px;
+        margin: 0 auto;
+        padding: 18px;
+        display: grid;
+        gap: 16px;
+        grid-template-columns: repeat(auto-fit, minmax(320px, 1fr));
+      }
+      .panel {
+        background: rgba(15, 23, 42, 0.85);
+        border: 1px solid rgba(148, 163, 184, 0.25);
+        border-radius: 12px;
+        padding: 14px;
+      }
+      h1, h2 { margin: 0 0 8px; }
+      p { margin: 0 0 8px; color: #cbd5e1; }
+      label { display: block; margin-bottom: 6px; }
+      input {
+        width: 100%;
+        border: 1px solid #334155;
+        border-radius: 8px;
+        padding: 10px;
+        color: #f8fafc;
+        background: #0f172a;
+        margin-bottom: 10px;
+      }
+      button {
+        border: 0;
+        border-radius: 8px;
+        padding: 10px 14px;
+        font-weight: 700;
+        cursor: pointer;
+        background: #22c55e;
+        color: #052e16;
+      }
+      button:disabled { opacity: 0.6; cursor: not-allowed; }
+      .summary { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 10px; }
+      .error { color: #fca5a5; margin-top: 8px; }
+      .log-list {
+        display: grid;
+        gap: 10px;
+        max-height: 72vh;
+        overflow: auto;
+      }
+      .log-item {
+        border: 1px solid transparent;
+        background: rgba(15, 23, 42, 0.8);
+        border-radius: 8px;
+        padding: 10px;
+      }
+      .ok { border-color: rgba(34, 197, 94, 0.7); }
+      .fail { border-color: rgba(239, 68, 68, 0.8); }
+      pre {
+        margin: 8px 0 0;
+        white-space: pre-wrap;
+        word-break: break-word;
+        color: #bae6fd;
+        font-size: 12px;
+        font-family: "JetBrains Mono", "SFMono-Regular", ui-monospace, monospace;
+      }
+    </style>
+  </head>
+  <body>
+    <main>
+      <section class="panel">
+        <h1>API Smoke UI</h1>
+        <p>Изолированный UI для проверки всех текущих endpoint'ов backend мок-данными.</p>
+
+        <label for="base-url">Base URL (через nginx proxy)</label>
+        <input id="base-url" value="/api" />
+
+        <button id="run-btn">Run Full Scenario</button>
+        <div class="summary" id="summary"></div>
+        <div class="error" id="error"></div>
+      </section>
+
+      <section class="panel">
+        <h2>Request Log</h2>
+        <div class="log-list" id="logs"></div>
+      </section>
+    </main>
+
+    <script>
+      const runBtn = document.getElementById('run-btn');
+      const baseUrlInput = document.getElementById('base-url');
+      const logsEl = document.getElementById('logs');
+      const summaryEl = document.getElementById('summary');
+      const errorEl = document.getElementById('error');
+
+      function renderSummary(results) {
+        const passed = results.filter((step) => step.ok).length;
+        const failed = results.length - passed;
+        summaryEl.textContent = `Passed: ${passed} | Failed: ${failed} | Total: ${results.length}`;
+      }
+
+      function addLog(step) {
+        const item = document.createElement('article');
+        item.className = `log-item ${step.ok ? 'ok' : 'fail'}`;
+        item.innerHTML = `<strong>${step.name}</strong> | ${step.method} ${step.path} | status ${step.status}`;
+
+        const pre = document.createElement('pre');
+        pre.textContent = step.body === null ? '<empty>' : JSON.stringify(step.body, null, 2);
+        item.appendChild(pre);
+
+        logsEl.appendChild(item);
+        item.scrollIntoView({behavior: 'smooth', block: 'end'});
+      }
+
+      async function request(baseUrl, method, path, body) {
+        const response = await fetch(`${baseUrl}${path}`, {
+          method,
+          headers: {'Content-Type': 'application/json'},
+          body: body ? JSON.stringify(body) : undefined,
+        });
+
+        const text = await response.text();
+        let parsed = null;
+        if (text) {
+          try {
+            parsed = JSON.parse(text);
+          } catch {
+            parsed = text;
+          }
+        }
+
+        return {
+          method,
+          path,
+          status: response.status,
+          ok: response.ok,
+          body: parsed,
+        };
+      }
+
+      runBtn.addEventListener('click', async () => {
+        runBtn.disabled = true;
+        logsEl.innerHTML = '';
+        errorEl.textContent = '';
+
+        const results = [];
+        const ctx = {};
+        const suffix = Date.now().toString().slice(-6);
+        const baseUrl = baseUrlInput.value.trim() || '/api';
+
+        const steps = [
+          { name: 'health', method: 'GET', path: () => '/health', expected: [200] },
+          {
+            name: 'create_project', method: 'POST', path: () => '/projects', expected: [201],
+            body: () => ({name: `Smoke UI ${suffix}`, description: 'Isolated smoke scenario'}),
+            capture: (body) => { ctx.projectId = body.id; },
+          },
+          { name: 'list_projects', method: 'GET', path: () => '/projects', expected: [200] },
+          { name: 'get_project', method: 'GET', path: () => `/projects/${ctx.projectId}`, expected: [200] },
+          {
+            name: 'update_project', method: 'PATCH', path: () => `/projects/${ctx.projectId}`, expected: [200],
+            body: () => ({description: 'Updated by isolated smoke UI'}),
+          },
+          {
+            name: 'create_node_a', method: 'POST', path: () => `/projects/${ctx.projectId}/nodes`, expected: [201],
+            body: () => ({code: `N-${suffix}-A`, x: 10, y: 10, type: 'junction'}),
+            capture: (body) => { ctx.nodeAId = body.id; },
+          },
+          {
+            name: 'create_node_b', method: 'POST', path: () => `/projects/${ctx.projectId}/nodes`, expected: [201],
+            body: () => ({code: `N-${suffix}-B`, x: 40, y: 20, type: 'junction'}),
+            capture: (body) => { ctx.nodeBId = body.id; },
+          },
+          {
+            name: 'create_disposable_node', method: 'POST', path: () => `/projects/${ctx.projectId}/nodes`, expected: [201],
+            body: () => ({code: `N-${suffix}-D`, x: 100, y: 100, type: 'shape'}),
+            capture: (body) => { ctx.disposableNodeId = body.id; },
+          },
+          { name: 'list_nodes', method: 'GET', path: () => `/projects/${ctx.projectId}/nodes`, expected: [200] },
+          {
+            name: 'update_node_a', method: 'PATCH', path: () => `/projects/${ctx.projectId}/nodes/${ctx.nodeAId}`, expected: [200],
+            body: () => ({x: 12, y: 9}),
+          },
+          { name: 'delete_disposable_node', method: 'DELETE', path: () => `/projects/${ctx.projectId}/nodes/${ctx.disposableNodeId}`, expected: [204] },
+          {
+            name: 'create_road_type', method: 'POST', path: () => `/projects/${ctx.projectId}/road-types`, expected: [201],
+            body: () => ({
+              code: `RT-${suffix}`,
+              name: 'Urban test',
+              num_lanes: 2,
+              speed: 13.9,
+              priority: 3,
+              width: 3.5,
+              sidewalk_width: 2.0,
+            }),
+            capture: (body) => { ctx.roadTypeId = body.id; },
+          },
+          { name: 'list_road_types', method: 'GET', path: () => `/projects/${ctx.projectId}/road-types`, expected: [200] },
+          {
+            name: 'update_road_type', method: 'PATCH', path: () => `/projects/${ctx.projectId}/road-types/${ctx.roadTypeId}`, expected: [200],
+            body: () => ({speed: 15, width: 3.6}),
+          },
+          {
+            name: 'create_edge', method: 'POST', path: () => `/projects/${ctx.projectId}/edges`, expected: [201],
+            body: () => ({
+              code: `E-${suffix}`,
+              from_node_id: ctx.nodeAId,
+              to_node_id: ctx.nodeBId,
+              road_type_id: ctx.roadTypeId,
+              name: 'Smoke edge',
+              speed: 13.9,
+              width: 3.5,
+              shape: [{x: 12, y: 9}, {x: 40, y: 20}],
+              lanes: [
+                {index: 0, allow: 'passenger bus', speed: 13.9, width: 3.5},
+                {index: 1, allow: 'passenger', speed: 13.9, width: 3.5},
+              ],
+            }),
+            capture: (body) => {
+              ctx.edgeId = body.id;
+              ctx.laneId = body.lanes[0]?.id;
+            },
+          },
+          {
+            name: 'create_bidirectional_edge', method: 'POST', path: () => `/projects/${ctx.projectId}/edges/bidirectional`, expected: [201],
+            body: () => ({
+              forward_code: `E-${suffix}-FWD`,
+              reverse_code: `E-${suffix}-REV`,
+              from_node_id: ctx.nodeAId,
+              to_node_id: ctx.nodeBId,
+              road_type_id: ctx.roadTypeId,
+              shape: [{x: 12, y: 9}, {x: 40, y: 20}],
+            }),
+          },
+          { name: 'list_edges', method: 'GET', path: () => `/projects/${ctx.projectId}/edges`, expected: [200] },
+          { name: 'get_edge', method: 'GET', path: () => `/projects/${ctx.projectId}/edges/${ctx.edgeId}`, expected: [200] },
+          { name: 'get_edge_editor', method: 'GET', path: () => `/projects/${ctx.projectId}/edges/${ctx.edgeId}/editor`, expected: [200] },
+          {
+            name: 'patch_edge', method: 'PATCH', path: () => `/projects/${ctx.projectId}/edges/${ctx.edgeId}`, expected: [200],
+            body: () => ({name: 'Smoke edge updated', speed: 14.2, width: 3.7}),
+          },
+          {
+            name: 'patch_shape', method: 'PATCH', path: () => `/projects/${ctx.projectId}/edges/${ctx.edgeId}/shape`, expected: [200],
+            body: () => ({shape: [{x: 12, y: 9}, {x: 20, y: 14}, {x: 40, y: 20}]}),
+          },
+          { name: 'recalculate_length', method: 'POST', path: () => `/projects/${ctx.projectId}/edges/${ctx.edgeId}/recalculate-length`, expected: [200] },
+          {
+            name: 'replace_lanes', method: 'PUT', path: () => `/projects/${ctx.projectId}/edges/${ctx.edgeId}/lanes`, expected: [200],
+            body: () => ({lanes: [
+              {index: 0, allow: 'passenger', speed: 14.0, width: 3.6},
+              {index: 1, allow: 'passenger bus', speed: 13.4, width: 3.7},
+            ]}),
+            capture: (body) => {
+              ctx.laneId = body.lanes[0]?.id;
+            },
+          },
+          {
+            name: 'patch_lane', method: 'PATCH',
+            path: () => `/projects/${ctx.projectId}/edges/${ctx.edgeId}/lanes/${ctx.laneId}`,
+            expected: [200],
+            body: () => ({allow: 'passenger bus taxi', speed: 12.8}),
+          },
+          {
+            name: 'apply_road_type', method: 'POST',
+            path: () => `/projects/${ctx.projectId}/edges/${ctx.edgeId}/apply-road-type`,
+            expected: [200],
+            body: () => ({
+              road_type_id: ctx.roadTypeId,
+              speed: 14.4,
+              width: 3.55,
+              lane_speed: 14.4,
+              lane_width: 3.55,
+              apply_to_lanes: true,
+            }),
+          },
+          { name: 'get_network', method: 'GET', path: () => `/projects/${ctx.projectId}/network`, expected: [200] },
+          { name: 'delete_project', method: 'DELETE', path: () => `/projects/${ctx.projectId}`, expected: [204] },
+        ];
+
+        try {
+          for (const step of steps) {
+            const response = await request(baseUrl, step.method, step.path(), step.body ? step.body() : undefined);
+            response.name = step.name;
+            if (!step.expected.includes(response.status)) {
+              response.ok = false;
+            }
+
+            results.push(response);
+            addLog(response);
+            renderSummary(results);
+
+            if (!response.ok) {
+              throw new Error(`${step.name} failed with status ${response.status}`);
+            }
+            if (step.capture) {
+              step.capture(response.body || {});
+            }
+          }
+        } catch (err) {
+          errorEl.textContent = err instanceof Error ? err.message : 'Unknown error';
+        } finally {
+          runBtn.disabled = false;
+        }
+      });
+    </script>
+  </body>
+</html>
