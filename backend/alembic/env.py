@@ -11,7 +11,10 @@ from app.core.config import settings
 from app.db.base import Base
 from app.models.connection import ConnectionModel  # noqa: F401
 from app.models.edge import EdgeModel  # noqa: F401
+from app.models.intersection import IntersectionModel  # noqa: F401
+from app.models.intersection_approach import IntersectionApproachModel  # noqa: F401
 from app.models.lane import LaneModel  # noqa: F401
+from app.models.movement import MovementModel  # noqa: F401
 from app.models.node import NodeModel  # noqa: F401
 from app.models.project import ProjectModel  # noqa: F401
 from app.models.road_type import RoadTypeModel  # noqa: F401

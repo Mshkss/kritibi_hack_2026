@@ -6,15 +6,21 @@ from sqlalchemy.orm import Session
 from app.db.session import get_db
 from app.repositories.connection import ConnectionRepository
 from app.repositories.edge import EdgeRepository
+from app.repositories.intersection import IntersectionRepository
+from app.repositories.intersection_approach import IntersectionApproachRepository
+from app.repositories.movement import MovementRepository
 from app.repositories.node import NodeRepository
 from app.repositories.project import ProjectRepository
 from app.repositories.road_type import RoadTypeRepository
+from app.services.approach_builder_service import ApproachBuilderService
 from app.services.connection_service import ConnectionService
 from app.services.edge_service import EdgeService
 from app.services.geometry_service import GeometryService
 from app.services.graph_topology_validation_service import GraphTopologyValidationService
 from app.services.graph_service import GraphService
+from app.services.intersection_service import IntersectionService
 from app.services.lane_validation_service import LaneValidationService
+from app.services.movement_builder_service import MovementBuilderService
 from app.services.node_service import NodeService
 from app.services.project_service import ProjectService
 from app.services.road_segment_editor_service import RoadSegmentEditorService
@@ -126,6 +132,43 @@ def get_connection_service(
     )
 
 
+def get_approach_builder_service(
+    db: Session = Depends(get_db),
+) -> ApproachBuilderService:
+    return ApproachBuilderService(
+        edge_repository=EdgeRepository(db),
+        approach_repository=IntersectionApproachRepository(db),
+    )
+
+
+def get_movement_builder_service(
+    db: Session = Depends(get_db),
+) -> MovementBuilderService:
+    return MovementBuilderService(
+        movement_repository=MovementRepository(db),
+        approach_repository=IntersectionApproachRepository(db),
+        connection_repository=ConnectionRepository(db),
+    )
+
+
+def get_intersection_service(
+    db: Session = Depends(get_db),
+    project_service: ProjectService = Depends(get_project_service),
+    approach_builder_service: ApproachBuilderService = Depends(get_approach_builder_service),
+    movement_builder_service: MovementBuilderService = Depends(get_movement_builder_service),
+) -> IntersectionService:
+    return IntersectionService(
+        intersection_repository=IntersectionRepository(db),
+        approach_repository=IntersectionApproachRepository(db),
+        movement_repository=MovementRepository(db),
+        node_repository=NodeRepository(db),
+        edge_repository=EdgeRepository(db),
+        project_service=project_service,
+        approach_builder_service=approach_builder_service,
+        movement_builder_service=movement_builder_service,
+    )
+
+
 __all__ = [
     "get_db",
     "get_edge_service",
@@ -133,6 +176,9 @@ __all__ = [
     "get_graph_topology_validation_service",
     "get_graph_service",
     "get_connection_service",
+    "get_approach_builder_service",
+    "get_movement_builder_service",
+    "get_intersection_service",
     "get_lane_validation_service",
     "get_node_service",
     "get_project_service",
