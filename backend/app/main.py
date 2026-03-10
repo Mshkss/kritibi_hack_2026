@@ -4,15 +4,8 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
-from app.api.routers import (
-    edges,
-    health,
-    import_export,
-    intersections,
-    nodes,
-    projects,
-    traffic_lights,
-)
+from app.api.routers import edges, health, nodes, projects, road_types
+from app.core.config import settings
 from app.core.logging import configure_logging
 
 
@@ -22,11 +15,15 @@ async def lifespan(_: FastAPI):
     yield
 
 
-app = FastAPI(title="Road Network API", lifespan=lifespan)
+app = FastAPI(
+    title=settings.app_name,
+    debug=settings.debug,
+    lifespan=lifespan,
+)
 app.include_router(health.router, tags=["health"])
 app.include_router(projects.router, tags=["projects"])
 app.include_router(nodes.router, tags=["nodes"])
+app.include_router(road_types.router, tags=["road-types"])
 app.include_router(edges.router, tags=["edges"])
-app.include_router(intersections.router, tags=["intersections"])
-app.include_router(traffic_lights.router, tags=["traffic-lights"])
-app.include_router(import_export.router, tags=["import-export"])
+
+# TODO(next stage): register intersections/connections/traffic-lights/import-export routers.
