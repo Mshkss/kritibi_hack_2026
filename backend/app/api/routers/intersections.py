@@ -2,7 +2,7 @@
 
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, Response, status
 
 from app.api.deps import get_intersection_service
 from app.api.serializers import (
@@ -11,6 +11,8 @@ from app.api.serializers import (
     intersection_node_to_summary,
     intersection_to_response,
     movement_to_response,
+    pedestrian_crossing_to_response,
+    traffic_sign_to_response,
 )
 from app.schemas.intersection import (
     ApproachesSyncRequest,
@@ -21,10 +23,23 @@ from app.schemas.intersection import (
     IntersectionResponse,
     IntersectionValidationResponse,
     IntersectionApproachResponse,
+    IntersectionApproachPriorityPatchRequest,
+    IntersectionExportHintsResponse,
     MovementPatchRequest,
     MovementResponse,
     MovementsSyncRequest,
     MovementsSyncResponse,
+    PedestrianCrossingCreateRequest,
+    PedestrianCrossingListResponse,
+    PedestrianCrossingPatchRequest,
+    PedestrianCrossingResponse,
+    PedestrianCrossingSidesResponse,
+    PrioritySchemePutRequest,
+    PrioritySchemeResponse,
+    PrioritySchemeValidationResponse,
+    SignGenerationRequest,
+    SignGenerationResponse,
+    TrafficSignResponse,
 )
 from app.services.errors import ConflictError, NotFoundError, ValidationError
 from app.services.intersection_service import IntersectionService
@@ -131,6 +146,250 @@ def list_approaches(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 
 
+@router.patch(
+    "/intersections/{intersection_id}/approaches/{approach_id}",
+    response_model=IntersectionApproachResponse,
+)
+def patch_approach_priority(
+    project_id: UUID,
+    intersection_id: UUID,
+    approach_id: UUID,
+    payload: IntersectionApproachPriorityPatchRequest,
+    service: IntersectionService = Depends(get_intersection_service),
+) -> IntersectionApproachResponse:
+    try:
+        approach = service.patch_approach_priority(
+            str(project_id),
+            str(intersection_id),
+            str(approach_id),
+            payload,
+        )
+        return approach_to_response(approach)
+    except ValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except ConflictError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    except NotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+
+@router.put("/intersections/{intersection_id}/priority-scheme", response_model=PrioritySchemeResponse)
+def put_priority_scheme(
+    project_id: UUID,
+    intersection_id: UUID,
+    payload: PrioritySchemePutRequest,
+    service: IntersectionService = Depends(get_intersection_service),
+) -> PrioritySchemeResponse:
+    try:
+        data = service.put_priority_scheme(str(project_id), str(intersection_id), payload)
+        return PrioritySchemeResponse(
+            intersection_id=data["intersection_id"],
+            approaches=[approach_to_response(item) for item in data["approaches"]],
+            summary=data["summary"],
+        )
+    except ValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except ConflictError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    except NotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+
+@router.get("/intersections/{intersection_id}/priority-scheme", response_model=PrioritySchemeResponse)
+def get_priority_scheme(
+    project_id: UUID,
+    intersection_id: UUID,
+    service: IntersectionService = Depends(get_intersection_service),
+) -> PrioritySchemeResponse:
+    try:
+        data = service.get_priority_scheme(str(project_id), str(intersection_id))
+        return PrioritySchemeResponse(
+            intersection_id=data["intersection_id"],
+            approaches=[approach_to_response(item) for item in data["approaches"]],
+            summary=data["summary"],
+        )
+    except NotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+
+@router.get("/intersections/{intersection_id}/priority-validation", response_model=PrioritySchemeValidationResponse)
+def validate_priority_scheme(
+    project_id: UUID,
+    intersection_id: UUID,
+    service: IntersectionService = Depends(get_intersection_service),
+) -> PrioritySchemeValidationResponse:
+    try:
+        data = service.priority_validation(str(project_id), str(intersection_id))
+        return PrioritySchemeValidationResponse.model_validate(data)
+    except NotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+
+@router.post("/intersections/{intersection_id}/signs/generate", response_model=SignGenerationResponse)
+def generate_signs(
+    project_id: UUID,
+    intersection_id: UUID,
+    payload: SignGenerationRequest,
+    service: IntersectionService = Depends(get_intersection_service),
+) -> SignGenerationResponse:
+    try:
+        data = service.generate_signs(str(project_id), str(intersection_id), payload)
+        return SignGenerationResponse(
+            intersection_id=data["intersection_id"],
+            secondary_sign_type=data["secondary_sign_type"],
+            created_count=data["created_count"],
+            updated_count=data["updated_count"],
+            deleted_count=data["deleted_count"],
+            signs=[traffic_sign_to_response(item) for item in data["signs"]],
+            diagnostics=list(data["diagnostics"]),
+        )
+    except ValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except ConflictError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    except NotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+
+@router.get("/intersections/{intersection_id}/signs", response_model=list[TrafficSignResponse])
+def list_signs(
+    project_id: UUID,
+    intersection_id: UUID,
+    service: IntersectionService = Depends(get_intersection_service),
+) -> list[TrafficSignResponse]:
+    try:
+        signs = service.list_signs(str(project_id), str(intersection_id))
+        return [traffic_sign_to_response(item) for item in signs]
+    except NotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+
+@router.get("/intersections/{intersection_id}/export-hints", response_model=IntersectionExportHintsResponse)
+def get_export_hints(
+    project_id: UUID,
+    intersection_id: UUID,
+    service: IntersectionService = Depends(get_intersection_service),
+) -> IntersectionExportHintsResponse:
+    try:
+        data = service.export_hints(str(project_id), str(intersection_id))
+        return IntersectionExportHintsResponse.model_validate(data)
+    except NotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+
+@router.post(
+    "/intersections/{intersection_id}/pedestrian-crossings",
+    response_model=PedestrianCrossingResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+def create_pedestrian_crossing(
+    project_id: UUID,
+    intersection_id: UUID,
+    payload: PedestrianCrossingCreateRequest,
+    service: IntersectionService = Depends(get_intersection_service),
+) -> PedestrianCrossingResponse:
+    try:
+        crossing = service.create_pedestrian_crossing(str(project_id), str(intersection_id), payload)
+        return pedestrian_crossing_to_response(crossing)
+    except ValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except ConflictError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    except NotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+
+@router.get(
+    "/intersections/{intersection_id}/pedestrian-crossings",
+    response_model=PedestrianCrossingListResponse,
+)
+def list_pedestrian_crossings(
+    project_id: UUID,
+    intersection_id: UUID,
+    service: IntersectionService = Depends(get_intersection_service),
+) -> PedestrianCrossingListResponse:
+    try:
+        crossings = service.list_pedestrian_crossings(str(project_id), str(intersection_id))
+        return PedestrianCrossingListResponse(
+            intersection_id=str(intersection_id),
+            crossings=[pedestrian_crossing_to_response(item) for item in crossings],
+        )
+    except NotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+
+@router.get(
+    "/intersections/{intersection_id}/pedestrian-crossings/{crossing_id}",
+    response_model=PedestrianCrossingResponse,
+)
+def get_pedestrian_crossing(
+    project_id: UUID,
+    intersection_id: UUID,
+    crossing_id: UUID,
+    service: IntersectionService = Depends(get_intersection_service),
+) -> PedestrianCrossingResponse:
+    try:
+        crossing = service.get_pedestrian_crossing(str(project_id), str(intersection_id), str(crossing_id))
+        return pedestrian_crossing_to_response(crossing)
+    except NotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+
+@router.patch(
+    "/intersections/{intersection_id}/pedestrian-crossings/{crossing_id}",
+    response_model=PedestrianCrossingResponse,
+)
+def patch_pedestrian_crossing(
+    project_id: UUID,
+    intersection_id: UUID,
+    crossing_id: UUID,
+    payload: PedestrianCrossingPatchRequest,
+    service: IntersectionService = Depends(get_intersection_service),
+) -> PedestrianCrossingResponse:
+    try:
+        crossing = service.patch_pedestrian_crossing(
+            str(project_id),
+            str(intersection_id),
+            str(crossing_id),
+            payload,
+        )
+        return pedestrian_crossing_to_response(crossing)
+    except ValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except ConflictError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    except NotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+
+@router.delete("/intersections/{intersection_id}/pedestrian-crossings/{crossing_id}", status_code=status.HTTP_204_NO_CONTENT)
+def delete_pedestrian_crossing(
+    project_id: UUID,
+    intersection_id: UUID,
+    crossing_id: UUID,
+    service: IntersectionService = Depends(get_intersection_service),
+) -> Response:
+    try:
+        service.delete_pedestrian_crossing(str(project_id), str(intersection_id), str(crossing_id))
+    except NotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+    return Response(status_code=status.HTTP_204_NO_CONTENT)
+
+
+@router.get("/intersections/{intersection_id}/pedestrian-crossing-sides", response_model=PedestrianCrossingSidesResponse)
+def get_pedestrian_crossing_sides(
+    project_id: UUID,
+    intersection_id: UUID,
+    service: IntersectionService = Depends(get_intersection_service),
+) -> PedestrianCrossingSidesResponse:
+    try:
+        data = service.pedestrian_crossing_sides(str(project_id), str(intersection_id))
+        return PedestrianCrossingSidesResponse.model_validate(data)
+    except NotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+
 @router.post("/intersections/{intersection_id}/movements/sync", response_model=MovementsSyncResponse)
 def sync_movements(
     project_id: UUID,
@@ -206,6 +465,17 @@ def get_editor_card(
             approaches=[approach_to_response(item) for item in data["approaches"]],
             movements=[movement_to_response(item) for item in data["movements"]],
             diagnostics=diagnostics,
+            priority_scheme=PrioritySchemeResponse(
+                intersection_id=data["priority_scheme"]["intersection_id"],
+                approaches=[approach_to_response(item) for item in data["priority_scheme"]["approaches"]],
+                summary=data["priority_scheme"]["summary"],
+            ),
+            generated_signs=[traffic_sign_to_response(item) for item in data["generated_signs"]],
+            export_hints=IntersectionExportHintsResponse.model_validate(data["export_hints"]),
+            pedestrian_crossings=[pedestrian_crossing_to_response(item) for item in data["pedestrian_crossings"]],
+            pedestrian_crossing_sides=PedestrianCrossingSidesResponse.model_validate(
+                data["pedestrian_crossing_sides"]
+            ),
         )
     except NotFoundError as exc:
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc

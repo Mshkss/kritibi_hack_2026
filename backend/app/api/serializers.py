@@ -6,6 +6,8 @@ from app.models.intersection import IntersectionModel
 from app.models.intersection_approach import IntersectionApproachModel
 from app.models.movement import MovementModel
 from app.models.node import NodeModel
+from app.models.pedestrian_crossing import PedestrianCrossingModel
+from app.models.traffic_sign import TrafficSignModel
 from app.schemas.connection import ConnectionResponse, EdgeConnectionSummary, NodeSummary
 from app.schemas.edge import EdgeRead
 from app.schemas.intersection import (
@@ -14,6 +16,8 @@ from app.schemas.intersection import (
     IntersectionNodeSummary,
     IntersectionResponse,
     MovementResponse,
+    PedestrianCrossingResponse,
+    TrafficSignResponse,
 )
 
 
@@ -135,6 +139,8 @@ def approach_to_response(approach: IntersectionApproachModel) -> IntersectionApp
             "incoming_edge_name": approach.incoming_edge.name if approach.incoming_edge else None,
             "order_index": approach.order_index,
             "name": approach.name,
+            "role": approach.role,
+            "priority_rank": approach.priority_rank,
             "created_at": approach.created_at,
             "updated_at": approach.updated_at,
         }
@@ -157,5 +163,44 @@ def movement_to_response(movement: MovementModel) -> MovementResponse:
             "movement_kind": movement.movement_kind,
             "created_at": movement.created_at,
             "updated_at": movement.updated_at,
+        }
+    )
+
+
+def traffic_sign_to_response(sign: TrafficSignModel) -> TrafficSignResponse:
+    return TrafficSignResponse.model_validate(
+        {
+            "id": sign.id,
+            "project_id": sign.project_id,
+            "intersection_id": sign.intersection_id,
+            "approach_id": sign.approach_id,
+            "node_id": sign.node_id,
+            "edge_id": sign.edge_id,
+            "sign_type": sign.sign_type,
+            "generated": sign.generated,
+            "metadata": sign.payload,
+            "created_at": sign.created_at,
+            "updated_at": sign.updated_at,
+        }
+    )
+
+
+def pedestrian_crossing_to_response(crossing: PedestrianCrossingModel) -> PedestrianCrossingResponse:
+    approach = crossing.approach
+    incoming_edge = approach.incoming_edge if approach is not None else None
+    return PedestrianCrossingResponse.model_validate(
+        {
+            "id": crossing.id,
+            "project_id": crossing.project_id,
+            "intersection_id": crossing.intersection_id,
+            "approach_id": crossing.approach_id,
+            "side_key": crossing.side_key,
+            "is_enabled": crossing.is_enabled,
+            "name": crossing.name,
+            "crossing_kind": crossing.crossing_kind,
+            "incoming_edge_id": incoming_edge.id if incoming_edge is not None else None,
+            "incoming_edge_code": incoming_edge.code if incoming_edge is not None else None,
+            "created_at": crossing.created_at,
+            "updated_at": crossing.updated_at,
         }
     )

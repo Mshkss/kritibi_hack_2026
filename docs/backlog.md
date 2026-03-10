@@ -5,5 +5,7 @@
 - [x] Implement network constructor core (nodes/edges/lanes/road types)
 - [x] Implement connection layer (node lane-level transitions)
 - [x] Implement intersection editor foundation (intersection/approach/movement)
+- [x] Implement priority scheme and generated signs layer
+- [x] Implement pedestrian crossings layer
 - [ ] Implement traffic light plans/phases
 - [ ] Implement SUMO XML export/import
