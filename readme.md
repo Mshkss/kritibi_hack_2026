@@ -2,13 +2,15 @@
 
 Backend для системы проектирования интеллектуальной дорожно-транспортной сети.
 
-Текущий этап: **Network Constructor + Road Segment Editor**.
+Текущий этап: **Network Constructor + Road Segment Editor + Connection Layer + Intersection Editor**.
 
 Реализовано:
 - foundation (config/env, DB/session, Alembic, healthcheck, Project CRUD)
 - ядро дорожного графа: `Node`, `Edge`, `Lane`, `RoadType`
 - API для базового цикла конструктора сети
 - editor-операции для параметров участка (`Edge`) и полос (`Lane`)
+- connection layer для lane-level переходов через узел (`Connection`)
+- intersection editor layer: `Intersection`, `IntersectionApproach`, `Movement`
 
 ## Local setup
 
@@ -82,6 +84,25 @@ docker compose -f infra/compose.yml exec backend alembic -c alembic.ini upgrade 
 - `PUT /projects/{project_id}/edges/{edge_id}/lanes`
 - `PATCH /projects/{project_id}/edges/{edge_id}/lanes/{lane_id}`
 - `POST /projects/{project_id}/edges/{edge_id}/apply-road-type`
+
+- `POST /projects/{project_id}/connections`
+- `PATCH /projects/{project_id}/connections/{connection_id}`
+- `DELETE /projects/{project_id}/connections/{connection_id}`
+- `GET /projects/{project_id}/nodes/{node_id}/connections`
+- `GET /projects/{project_id}/nodes/{node_id}/connection-candidates`
+- `POST /projects/{project_id}/nodes/{node_id}/connections/autogenerate`
+
+- `POST /projects/{project_id}/intersections`
+- `GET /projects/{project_id}/intersections/{intersection_id}`
+- `GET /projects/{project_id}/nodes/{node_id}/intersection`
+- `PATCH /projects/{project_id}/intersections/{intersection_id}`
+- `POST /projects/{project_id}/intersections/{intersection_id}/approaches/sync`
+- `GET /projects/{project_id}/intersections/{intersection_id}/approaches`
+- `POST /projects/{project_id}/intersections/{intersection_id}/movements/sync`
+- `GET /projects/{project_id}/intersections/{intersection_id}/movements`
+- `PATCH /projects/{project_id}/intersections/{intersection_id}/movements/{movement_id}`
+- `GET /projects/{project_id}/intersections/{intersection_id}/editor`
+- `GET /projects/{project_id}/intersections/{intersection_id}/validation`
 
 ## Contracts
 

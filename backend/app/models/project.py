@@ -47,3 +47,27 @@ class ProjectModel(Base):
         cascade="all, delete-orphan",
         passive_deletes=True,
     )
+    connections: Mapped[list["ConnectionModel"]] = relationship(
+        "ConnectionModel",
+        back_populates="project",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+    intersections: Mapped[list["IntersectionModel"]] = relationship(
+        "IntersectionModel",
+        back_populates="project",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+    intersection_approaches: Mapped[list["IntersectionApproachModel"]] = relationship(
+        "IntersectionApproachModel",
+        back_populates="project",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
+    movements: Mapped[list["MovementModel"]] = relationship(
+        "MovementModel",
+        back_populates="project",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )

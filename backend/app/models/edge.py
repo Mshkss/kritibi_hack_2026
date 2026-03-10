@@ -66,3 +66,33 @@ class EdgeModel(Base):
         passive_deletes=True,
         order_by="LaneModel.index",
     )
+    outgoing_connections: Mapped[list["ConnectionModel"]] = relationship(
+        "ConnectionModel",
+        back_populates="from_edge",
+        foreign_keys="ConnectionModel.from_edge_id",
+        passive_deletes=True,
+    )
+    incoming_connections: Mapped[list["ConnectionModel"]] = relationship(
+        "ConnectionModel",
+        back_populates="to_edge",
+        foreign_keys="ConnectionModel.to_edge_id",
+        passive_deletes=True,
+    )
+    incoming_approaches: Mapped[list["IntersectionApproachModel"]] = relationship(
+        "IntersectionApproachModel",
+        back_populates="incoming_edge",
+        foreign_keys="IntersectionApproachModel.incoming_edge_id",
+        passive_deletes=True,
+    )
+    movements_from_edge: Mapped[list["MovementModel"]] = relationship(
+        "MovementModel",
+        back_populates="from_edge",
+        foreign_keys="MovementModel.from_edge_id",
+        passive_deletes=True,
+    )
+    movements_to_edge: Mapped[list["MovementModel"]] = relationship(
+        "MovementModel",
+        back_populates="to_edge",
+        foreign_keys="MovementModel.to_edge_id",
+        passive_deletes=True,
+    )
