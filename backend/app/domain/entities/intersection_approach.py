@@ -1,4 +1,4 @@
-"""Domain entity: Intersection."""
+"""Domain entity: IntersectionApproach."""
 
 from dataclasses import dataclass
 from datetime import datetime
@@ -6,11 +6,12 @@ from uuid import UUID
 
 
 @dataclass(slots=True)
-class Intersection:
+class IntersectionApproach:
     id: UUID
     project_id: UUID
-    node_id: UUID
-    kind: str
+    intersection_id: UUID
+    incoming_edge_id: UUID
+    order_index: int | None
     name: str | None
     created_at: datetime
     updated_at: datetime

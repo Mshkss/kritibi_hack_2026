@@ -45,6 +45,24 @@ class EdgeRepository:
         )
         return list(self.session.scalars(stmt).all())
 
+    def list_incoming_for_node(self, project_id: str, node_id: str) -> list[EdgeModel]:
+        stmt = (
+            select(EdgeModel)
+            .options(selectinload(EdgeModel.lanes))
+            .where(EdgeModel.project_id == project_id, EdgeModel.to_node_id == node_id)
+            .order_by(EdgeModel.code.asc())
+        )
+        return list(self.session.scalars(stmt).all())
+
+    def list_outgoing_for_node(self, project_id: str, node_id: str) -> list[EdgeModel]:
+        stmt = (
+            select(EdgeModel)
+            .options(selectinload(EdgeModel.lanes))
+            .where(EdgeModel.project_id == project_id, EdgeModel.from_node_id == node_id)
+            .order_by(EdgeModel.code.asc())
+        )
+        return list(self.session.scalars(stmt).all())
+
     def exists_for_node(self, project_id: str, node_id: str) -> bool:
         stmt = select(EdgeModel.id).where(
             EdgeModel.project_id == project_id,
