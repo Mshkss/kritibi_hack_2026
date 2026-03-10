@@ -3,13 +3,14 @@
 from app.models.project import ProjectModel
 from app.repositories.project import ProjectRepository
 from app.schemas.project import ProjectCreate, ProjectUpdate
+from app.services.errors import NotFoundError, ValidationError
 
 
-class ProjectNotFoundError(ValueError):
+class ProjectNotFoundError(NotFoundError):
     """Raised when project does not exist."""
 
 
-class EmptyPatchError(ValueError):
+class EmptyPatchError(ValidationError):
     """Raised when PATCH body has no fields."""
 
 
@@ -42,3 +43,7 @@ class ProjectService:
     def delete(self, project_id: str) -> None:
         project = self.get(project_id)
         self._repository.delete(project)
+
+    def ensure_belongs_to_project(self, *, project_id: str, entity_project_id: str, entity_name: str) -> None:
+        if project_id != entity_project_id:
+            raise ValidationError(f"{entity_name} does not belong to project '{project_id}'")
