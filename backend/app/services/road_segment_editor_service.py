@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from sqlalchemy.exc import IntegrityError
 
+from app.repositories.connection import ConnectionRepository
 from app.repositories.edge import EdgeRepository
 from app.repositories.node import NodeRepository
 from app.repositories.road_type import RoadTypeRepository
@@ -26,6 +27,7 @@ class RoadSegmentEditorService:
     def __init__(
         self,
         edge_repository: EdgeRepository,
+        connection_repository: ConnectionRepository,
         node_repository: NodeRepository,
         road_type_repository: RoadTypeRepository,
         project_service: ProjectService,
@@ -33,6 +35,7 @@ class RoadSegmentEditorService:
         lane_validation_service: LaneValidationService,
     ):
         self._edge_repository = edge_repository
+        self._connection_repository = connection_repository
         self._node_repository = node_repository
         self._road_type_repository = road_type_repository
         self._project_service = project_service
@@ -129,6 +132,8 @@ class RoadSegmentEditorService:
 
         lane_dicts = [lane.model_dump() for lane in payload.lanes]
         normalized_lanes = self._lane_validation.validate_lane_replace_list(lane_dicts)
+        resulting_indexes = {int(item["index"]) for item in normalized_lanes}
+        self._assert_lane_change_connection_safe(project_id, edge.id, resulting_indexes=resulting_indexes)
 
         try:
             return self._edge_repository.replace_lanes(edge, normalized_lanes)
@@ -157,6 +162,9 @@ class RoadSegmentEditorService:
             existing_indexes = {item.index for item in edge.lanes if item.id != lane.id}
             if new_index in existing_indexes:
                 raise ValidationError(f"Lane index {new_index} already exists in edge")
+            resulting_indexes = set(existing_indexes)
+            resulting_indexes.add(new_index)
+            self._assert_lane_change_connection_safe(project_id, edge.id, resulting_indexes=resulting_indexes)
 
         try:
             self._edge_repository.update_lane(lane, commit=False, **normalized_patch)
@@ -239,3 +247,26 @@ class RoadSegmentEditorService:
             raise NotFoundError(f"to_node '{edge.to_node_id}' not found in project '{project_id}'")
 
         return from_node, to_node
+
+    def _assert_lane_change_connection_safe(
+        self,
+        project_id: str,
+        edge_id: str,
+        *,
+        resulting_indexes: set[int],
+    ) -> None:
+        connections = self._connection_repository.list_for_edge(project_id, edge_id)
+        broken: list[str] = []
+
+        for connection in connections:
+            if connection.from_edge_id == edge_id and connection.from_lane_index not in resulting_indexes:
+                broken.append(connection.id)
+            if connection.to_edge_id == edge_id and connection.to_lane_index not in resulting_indexes:
+                broken.append(connection.id)
+
+        if broken:
+            joined = ", ".join(sorted(set(broken)))
+            raise ValidationError(
+                "Lane change would invalidate existing connections. "
+                f"Update/delete these connections first: {joined}"
+            )

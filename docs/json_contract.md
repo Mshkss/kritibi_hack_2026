@@ -1,4 +1,4 @@
-# JSON Contract (Stage: Network + Road Segment Editor)
+# JSON Contract (Stage: Network + Road Segment Editor + Connection Layer)
 
 Base URL: `/`  
 Content-Type: `application/json`
@@ -11,21 +11,18 @@ Content-Type: `application/json`
 }
 ```
 
-Типовые коды:
+Коды:
 - `400` бизнес-валидация
-- `404` сущность не найдена в скоупе проекта
-- `409` конфликт ограничений
-- `422` schema-level валидация FastAPI/Pydantic
+- `404` сущность не найдена в project scope
+- `409` конфликт ограничений/дубликаты
+- `422` schema validation error
 
 ## Shared DTO Fragments
 
 ### Point
 
 ```json
-{
-  "x": 10.0,
-  "y": 20.0
-}
+{"x": 10.0, "y": 20.0}
 ```
 
 ### Shape
@@ -49,12 +46,14 @@ Content-Type: `application/json`
 }
 ```
 
-`allow`/`disallow`:
-- хранятся строкой в БД (`TEXT`)
-- нормализуются в deduplicated space-separated вид
-- не могут содержать пересечение одних и тех же классов
+`allow/disallow`:
+- хранение в БД: `TEXT`
+- формат: deduplicated space-separated
+- пересечения значений между `allow` и `disallow` запрещены
 
-## Base Network Endpoints (unchanged)
+## Existing Endpoints (foundation/network/road-segment-editor)
+
+- `GET /health`
 
 - `POST /projects`
 - `GET /projects`
@@ -76,229 +75,238 @@ Content-Type: `application/json`
 - `POST /projects/{project_id}/edges/bidirectional`
 - `GET /projects/{project_id}/edges`
 - `GET /projects/{project_id}/edges/{edge_id}`
+- `GET /projects/{project_id}/edges/{edge_id}/editor`
+- `PATCH /projects/{project_id}/edges/{edge_id}`
+- `PATCH /projects/{project_id}/edges/{edge_id}/shape`
+- `POST /projects/{project_id}/edges/{edge_id}/recalculate-length`
+- `PUT /projects/{project_id}/edges/{edge_id}/lanes`
+- `PATCH /projects/{project_id}/edges/{edge_id}/lanes/{lane_id}`
+- `POST /projects/{project_id}/edges/{edge_id}/apply-road-type`
 
-## Road Segment Editor Endpoints
+## Connection Layer Endpoints
 
-## GET `/projects/{project_id}/edges/{edge_id}/editor`
+## POST `/projects/{project_id}/connections`
 
-Карточка редактирования участка.
+Создать lane-level transition через узел.
 
-Response `200`:
+Request (`ConnectionCreateRequest`):
 
 ```json
 {
-  "edge": {
-    "id": "uuid",
-    "project_id": "uuid",
-    "code": "E1",
-    "from_node_id": "uuid",
-    "to_node_id": "uuid",
-    "road_type_id": "uuid",
-    "name": "Main eastbound",
-    "speed": 13.9,
-    "priority": 3,
-    "length": 120.5,
-    "width": 3.5,
-    "sidewalk_width": 1.5,
-    "shape": [{"x": 10.0, "y": 20.0}, {"x": 15.0, "y": 25.0}],
-    "lanes": [
-      {
-        "id": "uuid",
-        "edge_id": "uuid",
-        "index": 0,
-        "allow": "passenger",
-        "disallow": "tram",
-        "speed": 13.9,
-        "width": 3.5,
-        "created_at": "...",
-        "updated_at": "..."
-      }
-    ],
-    "num_lanes": 1,
-    "created_at": "...",
-    "updated_at": "..."
-  },
-  "road_type": {
-    "id": "uuid",
-    "project_id": "uuid",
-    "code": "urban_main",
-    "name": "Urban main",
-    "num_lanes": 2,
-    "speed": 13.9,
-    "priority": 3,
-    "width": 3.5,
-    "sidewalk_width": 1.5,
-    "created_at": "...",
-    "updated_at": "..."
-  }
+  "via_node_id": "uuid",
+  "from_edge_id": "uuid",
+  "to_edge_id": "uuid",
+  "from_lane_index": 0,
+  "to_lane_index": 0,
+  "uncontrolled": false
 }
 ```
 
-## PATCH `/projects/{project_id}/edges/{edge_id}`
+Response `201` (`ConnectionResponse`):
 
-Редактирование свойств участка (`EdgePatchRequest`).
+```json
+{
+  "id": "uuid",
+  "project_id": "uuid",
+  "via_node_id": "uuid",
+  "from_edge_id": "uuid",
+  "to_edge_id": "uuid",
+  "from_lane_index": 0,
+  "to_lane_index": 0,
+  "uncontrolled": false,
+  "from_edge_code": "E_in",
+  "to_edge_code": "E_out",
+  "via_node_code": "N1",
+  "from_edge_name": "Incoming",
+  "to_edge_name": "Outgoing",
+  "created_at": "2026-03-10T00:00:00Z",
+  "updated_at": "2026-03-10T00:00:00Z"
+}
+```
+
+Валидация:
+- topology: `from_edge.to_node_id == to_edge.from_node_id == via_node_id`
+- lane indexes существуют на соответствующих edge
+- сущности принадлежат одному проекту
+- уникальность `(project_id, from_edge_id, to_edge_id, from_lane_index, to_lane_index)`
+
+## PATCH `/projects/{project_id}/connections/{connection_id}`
+
+Изменить mutable-поля (`ConnectionPatchRequest`).
 
 Request:
 
 ```json
 {
-  "name": "Updated segment",
-  "speed": 12.5,
-  "priority": 4,
-  "length": 130.0,
-  "width": 3.4,
-  "sidewalk_width": 1.2,
-  "road_type_id": "uuid"
+  "uncontrolled": true
 }
 ```
 
-Response `200`: `Edge`.
+Response `200`: `ConnectionResponse`.
 
-`length` semantics:
-- если PATCH содержит `shape` и не содержит `length`, длина пересчитывается.
-- если PATCH содержит `length`, значение считается явным override.
+## DELETE `/projects/{project_id}/connections/{connection_id}`
 
-## PATCH `/projects/{project_id}/edges/{edge_id}/shape`
+Удаление connection в пределах project scope.
 
-Request:
+Response `204`.
+
+## GET `/projects/{project_id}/nodes/{node_id}/connections`
+
+Editor-friendly payload для узла.
+
+Response `200` (`NodeConnectionsResponse`):
 
 ```json
 {
-  "shape": [
-    {"x": 10.0, "y": 20.0},
-    {"x": 12.0, "y": 21.0},
-    {"x": 15.0, "y": 25.0}
+  "node": {"id": "uuid", "code": "N1"},
+  "incoming_edges": [
+    {"id": "uuid", "code": "E_in", "name": "Incoming", "from_node_id": "uuid", "to_node_id": "uuid", "num_lanes": 2}
+  ],
+  "outgoing_edges": [
+    {"id": "uuid", "code": "E_out", "name": "Outgoing", "from_node_id": "uuid", "to_node_id": "uuid", "num_lanes": 2}
+  ],
+  "connections": [
+    {
+      "id": "uuid",
+      "project_id": "uuid",
+      "via_node_id": "uuid",
+      "from_edge_id": "uuid",
+      "to_edge_id": "uuid",
+      "from_lane_index": 0,
+      "to_lane_index": 0,
+      "uncontrolled": false,
+      "from_edge_code": "E_in",
+      "to_edge_code": "E_out",
+      "via_node_code": "N1",
+      "from_edge_name": "Incoming",
+      "to_edge_name": "Outgoing",
+      "created_at": "...",
+      "updated_at": "..."
+    }
   ]
 }
 ```
 
-Response `200`: `Edge` (длина пересчитана автоматически).
+## GET `/projects/{project_id}/nodes/{node_id}/connection-candidates`
 
-## POST `/projects/{project_id}/edges/{edge_id}/recalculate-length`
+Диагностика входящих/исходящих пар для узла.
 
-Явный пересчет длины по текущему `shape` + синхронизация крайних точек по node-coordinates.
-
-Request body: пустой.
-
-Response `200`: `Edge`.
-
-## PUT `/projects/{project_id}/edges/{edge_id}/lanes`
-
-Полная замена списка полос (`LaneReplaceListRequest`).
-
-Request:
+Response `200` (`ConnectionCandidatesResponse`):
 
 ```json
 {
-  "lanes": [
-    {"index": 0, "allow": "passenger", "disallow": "tram", "speed": 12.0, "width": 3.0},
-    {"index": 1, "allow": "bus", "disallow": "passenger", "speed": 11.0, "width": 3.2}
+  "node_id": "uuid",
+  "incoming_edges": [],
+  "outgoing_edges": [],
+  "valid_pairs": [
+    {
+      "from_edge_id": "uuid",
+      "from_edge_code": "E_in",
+      "to_edge_id": "uuid",
+      "to_edge_code": "E_out",
+      "is_u_turn": false,
+      "lane_mapping_count": 2
+    }
+  ],
+  "invalid_pairs": [],
+  "diagnostics": [
+    "incoming=1, outgoing=1, candidate_pairs=1",
+    "valid_pairs=1, invalid_pairs=0",
+    "u_turn_pairs=0"
   ]
 }
 ```
 
-Response `200`: `Edge`.
+## POST `/projects/{project_id}/nodes/{node_id}/connections/autogenerate`
 
-Правила:
-- список не пустой,
-- индексы уникальны,
-- `index >= 0`.
+Автогенерация базовых connections.
 
-## PATCH `/projects/{project_id}/edges/{edge_id}/lanes/{lane_id}`
-
-Частичное изменение одной полосы (`LanePatchRequest`).
-
-Request:
+Request (`ConnectionAutogenerateRequest`):
 
 ```json
 {
-  "index": 1,
-  "allow": "bus taxi",
-  "disallow": "passenger",
-  "speed": 10.5,
-  "width": 3.2
+  "add_missing_only": true,
+  "allow_u_turns": false,
+  "uncontrolled": false
 }
 ```
 
-Response `200`: `Edge`.
+MVP semantics:
+- создаются только отсутствующие связи (`add-missing only`)
+- mapping: `0->0`, `1->1`, ... до `min(num_from_lanes, num_to_lanes)-1`
+- U-turn автоматически не генерируются, если `allow_u_turns=false`
 
-Правила:
-- нельзя получить конфликт `allow`/`disallow`,
-- при изменении `index` проверяется уникальность внутри `edge`.
-
-## POST `/projects/{project_id}/edges/{edge_id}/apply-road-type`
-
-Применяет `RoadType` к edge по snapshot semantics (`ApplyRoadTypeRequest`).
-
-Request:
+Response `200` (`ConnectionAutogenerateResponse`):
 
 ```json
 {
-  "road_type_id": "uuid",
-  "speed": null,
-  "priority": null,
-  "width": null,
-  "sidewalk_width": null,
-  "lane_speed": null,
-  "lane_width": 3.3,
-  "apply_to_lanes": true
+  "node_id": "uuid",
+  "considered_pairs": 6,
+  "created_count": 4,
+  "skipped_duplicates": 2,
+  "skipped_u_turns": 1,
+  "created_connections": [],
+  "diagnostics": [
+    "incoming=2, outgoing=3, candidate_pairs=6",
+    "valid_pairs=6, invalid_pairs=0",
+    "u_turn_pairs=1",
+    "created=4",
+    "skipped_duplicates=2",
+    "skipped_u_turns=1"
+  ]
 }
 ```
 
-Response `200`: `Edge`.
+## Important Behavioral Rules
 
-Семантика:
-- `road_type_id` записывается в edge.
-- edge-поля получают defaults road type, если не передан override.
-- override-поля из request имеют приоритет.
-- `apply_to_lanes=true` обновляет lane-level `speed/width`, сохраняя `allow/disallow`.
+1. `via_node_id` хранится явно и валидируется сервисом против `from_edge/to_edge` topology.
+2. `autogenerate` не удаляет существующие connection.
+3. U-turn:
+   - auto: только если `allow_u_turns=true`,
+   - manual create: разрешен при валидной topology/lane existence.
+4. Lane destructive change:
+   - если после `PUT /lanes` или `PATCH lane index` существующие connection становятся невалидными, операция отклоняется `400`.
+5. Edge delete (когда будет endpoint):
+   - связанные connection удаляются каскадно через FK (`ondelete=CASCADE`).
 
-## Validation / Error Cases
+## Typical Error Scenarios
 
-`400` invalid shape:
+`400` topology mismatch:
 
 ```json
 {
-  "detail": "shape must contain at least 2 points"
+  "detail": "via_node_id must match shared node of from_edge/to_edge"
 }
 ```
 
-`400` lane conflict:
+`400` lane index missing:
 
 ```json
 {
-  "detail": "allow/disallow conflict for classes: bus"
+  "detail": "from_lane_index=3 does not exist on edge '...', available indexes: [0, 1]"
 }
 ```
 
-`400` lane index invalid:
+`400` lane change would break connections:
 
 ```json
 {
-  "detail": "Lane index must be >= 0"
+  "detail": "Lane change would invalidate existing connections. Update/delete these connections first: ..."
 }
 ```
 
-`404` edge not in project:
+`404` project scope miss:
 
 ```json
 {
-  "detail": "Edge '...' not found in project '...'"
+  "detail": "Connection '...' not found in project '...'"
 }
 ```
 
-`404` lane not in edge:
+`409` duplicate:
 
 ```json
 {
-  "detail": "Lane '...' not found in edge '...'"
-}
-```
-
-`409` code uniqueness conflict:
-
-```json
-{
-  "detail": "Edge with code 'E1' already exists in project"
+  "detail": "Connection with the same from/to edges and lane indexes already exists"
 }
 ```
