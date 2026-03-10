@@ -53,3 +53,15 @@ class NodeModel(Base):
         foreign_keys="ConnectionModel.via_node_id",
         passive_deletes=True,
     )
+    intersection: Mapped["IntersectionModel | None"] = relationship(
+        "IntersectionModel",
+        back_populates="node",
+        uselist=False,
+        passive_deletes=True,
+    )
+    traffic_signs: Mapped[list["TrafficSignModel"]] = relationship(
+        "TrafficSignModel",
+        back_populates="node",
+        foreign_keys="TrafficSignModel.node_id",
+        passive_deletes=True,
+    )

@@ -73,3 +73,8 @@ class ConnectionModel(Base):
         back_populates="incoming_connections",
         foreign_keys=[to_edge_id],
     )
+    movements: Mapped[list["MovementModel"]] = relationship(
+        "MovementModel",
+        back_populates="connection",
+        passive_deletes=True,
+    )

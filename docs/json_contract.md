@@ -1,4 +1,4 @@
-# JSON Contract (Stage: Network + Road Segment Editor + Connection Layer)
+# JSON Contract (Stage: Pedestrian Crossings over Intersection Editor)
 
 Base URL: `/`  
 Content-Type: `application/json`
@@ -6,307 +6,166 @@ Content-Type: `application/json`
 ## Error Format
 
 ```json
-{
-  "detail": "human-readable error message"
-}
+{"detail": "human-readable error message"}
 ```
 
-Коды:
-- `400` бизнес-валидация
-- `404` сущность не найдена в project scope
-- `409` конфликт ограничений/дубликаты
+Типовые коды:
+- `400` validation/business rule error
+- `404` entity not found in project scope
+- `409` uniqueness/constraint conflict
 - `422` schema validation error
 
-## Shared DTO Fragments
+## Existing Endpoints (already available)
 
-### Point
+- Foundation + Project + Network + Segment editor endpoints.
+- Connection layer endpoints.
+- Intersection editor endpoints.
+- Priority/sign endpoints.
 
-```json
-{"x": 10.0, "y": 20.0}
-```
+## Pedestrian Crossing Endpoints
 
-### Shape
+## POST `/projects/{project_id}/intersections/{intersection_id}/pedestrian-crossings`
 
-```json
-[
-  {"x": 10.0, "y": 20.0},
-  {"x": 15.0, "y": 25.0}
-]
-```
+Создает pedestrian crossing на стороне intersection.
 
-### Lane item
+Request (`PedestrianCrossingCreateRequest`):
 
 ```json
 {
-  "index": 0,
-  "allow": "passenger bus",
-  "disallow": "tram",
-  "speed": 13.9,
-  "width": 3.5
+  "approach_id": "uuid",
+  "side_key": "approach:uuid",
+  "is_enabled": true,
+  "name": "North crosswalk",
+  "crossing_kind": "zebra"
 }
 ```
 
-`allow/disallow`:
-- хранение в БД: `TEXT`
-- формат: deduplicated space-separated
-- пересечения значений между `allow` и `disallow` запрещены
-
-## Existing Endpoints (foundation/network/road-segment-editor)
-
-- `GET /health`
-
-- `POST /projects`
-- `GET /projects`
-- `GET /projects/{project_id}`
-- `PATCH /projects/{project_id}`
-- `DELETE /projects/{project_id}`
-- `GET /projects/{project_id}/network`
-
-- `POST /projects/{project_id}/nodes`
-- `GET /projects/{project_id}/nodes`
-- `PATCH /projects/{project_id}/nodes/{node_id}`
-- `DELETE /projects/{project_id}/nodes/{node_id}`
-
-- `POST /projects/{project_id}/road-types`
-- `GET /projects/{project_id}/road-types`
-- `PATCH /projects/{project_id}/road-types/{road_type_id}`
-
-- `POST /projects/{project_id}/edges`
-- `POST /projects/{project_id}/edges/bidirectional`
-- `GET /projects/{project_id}/edges`
-- `GET /projects/{project_id}/edges/{edge_id}`
-- `GET /projects/{project_id}/edges/{edge_id}/editor`
-- `PATCH /projects/{project_id}/edges/{edge_id}`
-- `PATCH /projects/{project_id}/edges/{edge_id}/shape`
-- `POST /projects/{project_id}/edges/{edge_id}/recalculate-length`
-- `PUT /projects/{project_id}/edges/{edge_id}/lanes`
-- `PATCH /projects/{project_id}/edges/{edge_id}/lanes/{lane_id}`
-- `POST /projects/{project_id}/edges/{edge_id}/apply-road-type`
-
-## Connection Layer Endpoints
-
-## POST `/projects/{project_id}/connections`
-
-Создать lane-level transition через узел.
-
-Request (`ConnectionCreateRequest`):
-
-```json
-{
-  "via_node_id": "uuid",
-  "from_edge_id": "uuid",
-  "to_edge_id": "uuid",
-  "from_lane_index": 0,
-  "to_lane_index": 0,
-  "uncontrolled": false
-}
-```
-
-Response `201` (`ConnectionResponse`):
+Response `201` (`PedestrianCrossingResponse`):
 
 ```json
 {
   "id": "uuid",
   "project_id": "uuid",
-  "via_node_id": "uuid",
-  "from_edge_id": "uuid",
-  "to_edge_id": "uuid",
-  "from_lane_index": 0,
-  "to_lane_index": 0,
-  "uncontrolled": false,
-  "from_edge_code": "E_in",
-  "to_edge_code": "E_out",
-  "via_node_code": "N1",
-  "from_edge_name": "Incoming",
-  "to_edge_name": "Outgoing",
-  "created_at": "2026-03-10T00:00:00Z",
-  "updated_at": "2026-03-10T00:00:00Z"
+  "intersection_id": "uuid",
+  "approach_id": "uuid",
+  "side_key": "approach:uuid",
+  "is_enabled": true,
+  "name": "North crosswalk",
+  "crossing_kind": "zebra",
+  "incoming_edge_id": "uuid",
+  "incoming_edge_code": "E_IN_N",
+  "created_at": "2026-03-11T00:00:00Z",
+  "updated_at": "2026-03-11T00:00:00Z"
 }
 ```
 
-Валидация:
-- topology: `from_edge.to_node_id == to_edge.from_node_id == via_node_id`
-- lane indexes существуют на соответствующих edge
-- сущности принадлежат одному проекту
-- уникальность `(project_id, from_edge_id, to_edge_id, from_lane_index, to_lane_index)`
+## GET `/projects/{project_id}/intersections/{intersection_id}/pedestrian-crossings`
 
-## PATCH `/projects/{project_id}/connections/{connection_id}`
+Возвращает crossings intersection.
 
-Изменить mutable-поля (`ConnectionPatchRequest`).
-
-Request:
+Response `200` (`PedestrianCrossingListResponse`):
 
 ```json
 {
-  "uncontrolled": true
+  "intersection_id": "uuid",
+  "crossings": []
 }
 ```
 
-Response `200`: `ConnectionResponse`.
+## GET `/projects/{project_id}/intersections/{intersection_id}/pedestrian-crossings/{crossing_id}`
 
-## DELETE `/projects/{project_id}/connections/{connection_id}`
+Response `200`: `PedestrianCrossingResponse`.
 
-Удаление connection в пределах project scope.
+## PATCH `/projects/{project_id}/intersections/{intersection_id}/pedestrian-crossings/{crossing_id}`
 
-Response `204`.
+Обновляет crossing.
 
-## GET `/projects/{project_id}/nodes/{node_id}/connections`
-
-Editor-friendly payload для узла.
-
-Response `200` (`NodeConnectionsResponse`):
+Request (`PedestrianCrossingPatchRequest`):
 
 ```json
 {
-  "node": {"id": "uuid", "code": "N1"},
-  "incoming_edges": [
-    {"id": "uuid", "code": "E_in", "name": "Incoming", "from_node_id": "uuid", "to_node_id": "uuid", "num_lanes": 2}
-  ],
-  "outgoing_edges": [
-    {"id": "uuid", "code": "E_out", "name": "Outgoing", "from_node_id": "uuid", "to_node_id": "uuid", "num_lanes": 2}
-  ],
-  "connections": [
+  "is_enabled": false,
+  "name": "North crossing disabled",
+  "crossing_kind": "signalized"
+}
+```
+
+Response `200`: `PedestrianCrossingResponse`.
+
+## DELETE `/projects/{project_id}/intersections/{intersection_id}/pedestrian-crossings/{crossing_id}`
+
+Удаляет crossing.  
+Response `204` (no body).
+
+## GET `/projects/{project_id}/intersections/{intersection_id}/pedestrian-crossing-sides`
+
+Возвращает candidate sides, построенные из approaches.
+
+Response `200` (`PedestrianCrossingSidesResponse`):
+
+```json
+{
+  "intersection_id": "uuid",
+  "candidate_sides": [
     {
-      "id": "uuid",
-      "project_id": "uuid",
-      "via_node_id": "uuid",
-      "from_edge_id": "uuid",
-      "to_edge_id": "uuid",
-      "from_lane_index": 0,
-      "to_lane_index": 0,
-      "uncontrolled": false,
-      "from_edge_code": "E_in",
-      "to_edge_code": "E_out",
-      "via_node_code": "N1",
-      "from_edge_name": "Incoming",
-      "to_edge_name": "Outgoing",
-      "created_at": "...",
-      "updated_at": "..."
-    }
-  ]
-}
-```
-
-## GET `/projects/{project_id}/nodes/{node_id}/connection-candidates`
-
-Диагностика входящих/исходящих пар для узла.
-
-Response `200` (`ConnectionCandidatesResponse`):
-
-```json
-{
-  "node_id": "uuid",
-  "incoming_edges": [],
-  "outgoing_edges": [],
-  "valid_pairs": [
-    {
-      "from_edge_id": "uuid",
-      "from_edge_code": "E_in",
-      "to_edge_id": "uuid",
-      "to_edge_code": "E_out",
-      "is_u_turn": false,
-      "lane_mapping_count": 2
+      "side_key": "approach:uuid",
+      "approach_id": "uuid",
+      "incoming_edge_id": "uuid",
+      "incoming_edge_code": "E_IN_N",
+      "already_has_crossing": true,
+      "crossing_id": "uuid",
+      "crossing_is_enabled": true
     }
   ],
-  "invalid_pairs": [],
-  "diagnostics": [
-    "incoming=1, outgoing=1, candidate_pairs=1",
-    "valid_pairs=1, invalid_pairs=0",
-    "u_turn_pairs=0"
-  ]
+  "warnings": [],
+  "errors": []
 }
 ```
 
-## POST `/projects/{project_id}/nodes/{node_id}/connections/autogenerate`
+## Side Key Semantics
 
-Автогенерация базовых connections.
+1. `side_key` — source of truth стороны crossing.
+2. В текущем MVP candidate side имеет формат `approach:{approach_id}`.
+3. Если intersection имеет approaches, `side_key` должен совпадать с одним из candidate sides.
+4. Если задан `approach_id`, `side_key` обязан совпадать с `approach:{approach_id}`.
 
-Request (`ConnectionAutogenerateRequest`):
+## Uniqueness & Lifecycle
+
+1. На одну сторону допускается только один crossing:
+- `unique(intersection_id, side_key)`.
+
+2. Disable vs delete:
+- `is_enabled=false` сохраняет crossing, но отключает.
+- физическое удаление — `DELETE`.
+
+## Updated Intersection Editor Card
+
+`GET /projects/{project_id}/intersections/{intersection_id}/editor` дополнен:
+- `pedestrian_crossings[]`
+- `pedestrian_crossing_sides`
+
+## Validation / Error Cases
+
+`400` invalid side_key:
 
 ```json
-{
-  "add_missing_only": true,
-  "allow_u_turns": false,
-  "uncontrolled": false
-}
+{"detail": "side_key '...' is invalid for intersection '...'"}
 ```
 
-MVP semantics:
-- создаются только отсутствующие связи (`add-missing only`)
-- mapping: `0->0`, `1->1`, ... до `min(num_from_lanes, num_to_lanes)-1`
-- U-turn автоматически не генерируются, если `allow_u_turns=false`
-
-Response `200` (`ConnectionAutogenerateResponse`):
+`400` approach mismatch:
 
 ```json
-{
-  "node_id": "uuid",
-  "considered_pairs": 6,
-  "created_count": 4,
-  "skipped_duplicates": 2,
-  "skipped_u_turns": 1,
-  "created_connections": [],
-  "diagnostics": [
-    "incoming=2, outgoing=3, candidate_pairs=6",
-    "valid_pairs=6, invalid_pairs=0",
-    "u_turn_pairs=1",
-    "created=4",
-    "skipped_duplicates=2",
-    "skipped_u_turns=1"
-  ]
-}
+{"detail": "side_key '...' must match approach side 'approach:...'"}
 ```
 
-## Important Behavioral Rules
-
-1. `via_node_id` хранится явно и валидируется сервисом против `from_edge/to_edge` topology.
-2. `autogenerate` не удаляет существующие connection.
-3. U-turn:
-   - auto: только если `allow_u_turns=true`,
-   - manual create: разрешен при валидной topology/lane existence.
-4. Lane destructive change:
-   - если после `PUT /lanes` или `PATCH lane index` существующие connection становятся невалидными, операция отклоняется `400`.
-5. Edge delete (когда будет endpoint):
-   - связанные connection удаляются каскадно через FK (`ondelete=CASCADE`).
-
-## Typical Error Scenarios
-
-`400` topology mismatch:
+`404` crossing not found:
 
 ```json
-{
-  "detail": "via_node_id must match shared node of from_edge/to_edge"
-}
+{"detail": "PedestrianCrossing '...' not found in intersection '...'"}
 ```
 
-`400` lane index missing:
+`409` duplicate side:
 
 ```json
-{
-  "detail": "from_lane_index=3 does not exist on edge '...', available indexes: [0, 1]"
-}
-```
-
-`400` lane change would break connections:
-
-```json
-{
-  "detail": "Lane change would invalidate existing connections. Update/delete these connections first: ..."
-}
-```
-
-`404` project scope miss:
-
-```json
-{
-  "detail": "Connection '...' not found in project '...'"
-}
-```
-
-`409` duplicate:
-
-```json
-{
-  "detail": "Connection with the same from/to edges and lane indexes already exists"
-}
+{"detail": "PedestrianCrossing for side 'approach:...' already exists in intersection '...'"}
 ```

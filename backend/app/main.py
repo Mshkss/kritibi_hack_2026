@@ -4,7 +4,7 @@ from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
 
-from app.api.routers import connections, edges, health, nodes, projects, road_types
+from app.api.routers import connections, edges, health, intersections, nodes, projects, road_types
 from app.core.config import settings
 from app.core.logging import configure_logging
 
@@ -26,5 +26,6 @@ app.include_router(nodes.router, tags=["nodes"])
 app.include_router(road_types.router, tags=["road-types"])
 app.include_router(edges.router, tags=["edges"])
 app.include_router(connections.router, tags=["connections"])
+app.include_router(intersections.router, tags=["intersections"])
 
-# TODO(next stage): register intersections/traffic-lights/import-export routers.
+# TODO(next stage): register traffic-lights/import-export routers.
