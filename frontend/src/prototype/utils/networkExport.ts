@@ -84,25 +84,26 @@ const buildEdgeDescription = (edge: Edge, source: Node, target: Node): string =>
 };
 
 const filterLaneGraph = (state: NetworkState): FilteredLaneGraph => {
-  const laneEdges = (Object.values(state.edges) as Edge[])
-    .filter(edge => edge.isOneWay && !isIntersectionConnection(edge))
+  const exportEdges = (Object.values(state.edges) as Edge[])
+    // Keep hidden intersection links in export so node-edge connectivity survives OSM round-trips.
+    .filter(edge => edge.isOneWay || isIntersectionConnection(edge))
     .sort((a, b) => a.id.localeCompare(b.id));
 
-  const laneNodeIds = new Set<string>();
-  laneEdges.forEach(edge => {
-    laneNodeIds.add(edge.sourceId);
-    laneNodeIds.add(edge.targetId);
+  const exportNodeIds = new Set<string>();
+  exportEdges.forEach(edge => {
+    exportNodeIds.add(edge.sourceId);
+    exportNodeIds.add(edge.targetId);
   });
 
   const specialNodes = (Object.values(state.nodes) as Node[]).filter(isSpecialNode);
-  const exportNodeIds = new Set<string>([...laneNodeIds, ...specialNodes.map(node => node.id)]);
+  specialNodes.forEach(node => exportNodeIds.add(node.id));
 
   const nodes = [...exportNodeIds]
     .map(id => state.nodes[id])
     .filter((node): node is Node => Boolean(node))
     .sort((a, b) => a.id.localeCompare(b.id));
 
-  return { nodes, edges: laneEdges };
+  return { nodes, edges: exportEdges };
 };
 
 export const buildLaneNetworkJsonExport = (state: NetworkState): LaneNetworkJsonExport => {
