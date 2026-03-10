@@ -1,0 +1,70 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project version="4">
+  <component name="AutoImportSettings">
+    <option name="autoReloadType" value="SELECTIVE" />
+  </component>
+  <component name="ChangeListManager">
+    <list default="true" id="106cdec1-a307-470e-b1b7-58e12c6ab101" name="Changes" comment="">
+      <change beforePath="$PROJECT_DIR$/backend/app/models/connection.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/app/models/connection.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/app/models/edge.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/app/models/edge.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/app/models/intersection.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/app/models/intersection.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/app/models/lane.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/app/models/lane.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/app/models/movement.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/app/models/movement.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/app/models/node.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/app/models/node.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/app/models/phase.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/app/models/phase.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/app/models/project.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/app/models/project.py" afterDir="false" />
+      <change beforePath="$PROJECT_DIR$/backend/app/models/road_type.py" beforeDir="false" afterPath="$PROJECT_DIR$/backend/app/models/road_type.py" afterDir="false" />
+    </list>
+    <option name="SHOW_DIALOG" value="false" />
+    <option name="HIGHLIGHT_CONFLICTS" value="true" />
+    <option name="HIGHLIGHT_NON_ACTIVE_CHANGELIST" value="false" />
+    <option name="LAST_RESOLUTION" value="IGNORE" />
+  </component>
+  <component name="FileTemplateManagerImpl">
+    <option name="RECENT_TEMPLATES">
+      <list>
+        <option value="Python Script" />
+      </list>
+    </option>
+  </component>
+  <component name="Git.Settings">
+    <option name="RECENT_GIT_ROOT_PATH" value="$PROJECT_DIR$" />
+  </component>
+  <component name="ProjectColorInfo">{
+  &quot;associatedIndex&quot;: 1
+}</component>
+  <component name="ProjectId" id="3Ak9WzFFWpYdffk5T2hZeEZ3hnP" />
+  <component name="ProjectViewState">
+    <option name="hideEmptyMiddlePackages" value="true" />
+    <option name="showLibraryContents" value="true" />
+  </component>
+  <component name="PropertiesComponent"><![CDATA[{
+  "keyToString": {
+    "RunOnceActivity.ShowReadmeOnStart": "true",
+    "RunOnceActivity.git.unshallow": "true",
+    "git-widget-placeholder": "feature/models",
+    "ignore.virus.scanning.warn.message": "true",
+    "last_opened_file_path": "C:/MLProjects/RoadProject",
+    "run.code.analysis.last.selected.profile": "pProject Default",
+    "settings.editor.selected.configurable": "preferences.lookFeel"
+  }
+}]]></component>
+  <component name="SharedIndexes">
+    <attachedChunks>
+      <set>
+        <option value="bundled-python-sdk-fb887030ada0-aa17d162503b-com.jetbrains.pycharm.community.sharedIndexes.bundled-PC-243.21565.199" />
+      </set>
+    </attachedChunks>
+  </component>
+  <component name="SpellCheckerSettings" RuntimeDictionaries="0" Folders="0" CustomDictionaries="0" DefaultDictionary="application-level" UseSingleDictionary="true" transferred="true" />
+  <component name="TaskManager">
+    <task active="true" id="Default" summary="Default task">
+      <changelist id="106cdec1-a307-470e-b1b7-58e12c6ab101" name="Changes" comment="" />
+      <created>1773125737237</created>
+      <option name="number" value="Default" />
+      <option name="presentableId" value="Default" />
+      <updated>1773125737237</updated>
+    </task>
+    <servers />
+  </component>
+</project>
