@@ -12,7 +12,7 @@ export function validateNetwork(state: NetworkState): ValidationResult {
   
   const nodeIds = Object.keys(state.nodes);
   if (nodeIds.length === 0) {
-    return { isValid: true, warnings: ["Network is empty"], errors: [] };
+    return { isValid: true, warnings: ["Сеть пустая"], errors: [] };
   }
   
   // Build adjacency list
@@ -42,7 +42,7 @@ export function validateNetwork(state: NetworkState): ValidationResult {
   }
   
   if (visited.size < nodeIds.length) {
-    warnings.push(`Graph is disconnected. Visited ${visited.size} out of ${nodeIds.length} nodes.`);
+    warnings.push(`Граф несвязный: достижимо ${visited.size} из ${nodeIds.length} узлов.`);
   }
   
   // Check for isolated nodes (degree 0)
@@ -55,7 +55,7 @@ export function validateNetwork(state: NetworkState): ValidationResult {
   
   const isolated = nodeIds.filter(id => degrees[id] === 0);
   if (isolated.length > 0) {
-    warnings.push(`Found ${isolated.length} isolated nodes.`);
+    warnings.push(`Найдено изолированных узлов: ${isolated.length}.`);
   }
   
   return {

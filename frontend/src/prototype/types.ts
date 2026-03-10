@@ -1,4 +1,4 @@
-export type NodeType = 'default' | 'traffic_light' | 'crossing' | 'bus_stop';
+export type NodeType = 'default' | 'traffic_light' | 'crossing' | 'bus_stop' | 'speed_limit';
 
 export type Point = {
   lat: number;
@@ -10,6 +10,7 @@ export type Node = {
   lat: number;
   lng: number;
   name?: string;
+  speedLimit?: number;
   type?: NodeType;
 };
 
@@ -19,6 +20,9 @@ export type Edge = {
   targetId: string;
   points: Point[]; // intermediate control points
   isOneWay: boolean;
+  crossroad: boolean;
+  busStop: boolean;
+  speedLimit: number;
   name?: string;
   laneIndex?: number;
   isForward?: boolean;
