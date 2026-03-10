@@ -11,6 +11,10 @@ services:
   backend:
     build:
       context: ../backend
+    env_file:
+    - ../.env
+    environment:
+      DATABASE_URL: postgresql+psycopg://postgres:postgres@db:5432/road_network
     depends_on:
       - db
     ports:
