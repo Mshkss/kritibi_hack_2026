@@ -12,6 +12,7 @@ from app.repositories.movement import MovementRepository
 from app.repositories.node import NodeRepository
 from app.repositories.project import ProjectRepository
 from app.repositories.road_type import RoadTypeRepository
+from app.repositories.traffic_sign import TrafficSignRepository
 from app.services.approach_builder_service import ApproachBuilderService
 from app.services.connection_service import ConnectionService
 from app.services.edge_service import EdgeService
@@ -22,9 +23,11 @@ from app.services.intersection_service import IntersectionService
 from app.services.lane_validation_service import LaneValidationService
 from app.services.movement_builder_service import MovementBuilderService
 from app.services.node_service import NodeService
+from app.services.priority_scheme_service import PrioritySchemeService
 from app.services.project_service import ProjectService
 from app.services.road_segment_editor_service import RoadSegmentEditorService
 from app.services.road_type_service import RoadTypeService
+from app.services.sign_generation_service import SignGenerationService
 
 
 def get_project_service(db: Session = Depends(get_db)) -> ProjectService:
@@ -151,11 +154,38 @@ def get_movement_builder_service(
     )
 
 
+def get_priority_scheme_service(
+    db: Session = Depends(get_db),
+    project_service: ProjectService = Depends(get_project_service),
+) -> PrioritySchemeService:
+    return PrioritySchemeService(
+        intersection_repository=IntersectionRepository(db),
+        approach_repository=IntersectionApproachRepository(db),
+        project_service=project_service,
+    )
+
+
+def get_sign_generation_service(
+    db: Session = Depends(get_db),
+    project_service: ProjectService = Depends(get_project_service),
+    priority_scheme_service: PrioritySchemeService = Depends(get_priority_scheme_service),
+) -> SignGenerationService:
+    return SignGenerationService(
+        intersection_repository=IntersectionRepository(db),
+        approach_repository=IntersectionApproachRepository(db),
+        traffic_sign_repository=TrafficSignRepository(db),
+        priority_scheme_service=priority_scheme_service,
+        project_service=project_service,
+    )
+
+
 def get_intersection_service(
     db: Session = Depends(get_db),
     project_service: ProjectService = Depends(get_project_service),
     approach_builder_service: ApproachBuilderService = Depends(get_approach_builder_service),
     movement_builder_service: MovementBuilderService = Depends(get_movement_builder_service),
+    priority_scheme_service: PrioritySchemeService = Depends(get_priority_scheme_service),
+    sign_generation_service: SignGenerationService = Depends(get_sign_generation_service),
 ) -> IntersectionService:
     return IntersectionService(
         intersection_repository=IntersectionRepository(db),
@@ -166,6 +196,8 @@ def get_intersection_service(
         project_service=project_service,
         approach_builder_service=approach_builder_service,
         movement_builder_service=movement_builder_service,
+        priority_scheme_service=priority_scheme_service,
+        sign_generation_service=sign_generation_service,
     )
 
 
@@ -179,6 +211,8 @@ __all__ = [
     "get_approach_builder_service",
     "get_movement_builder_service",
     "get_intersection_service",
+    "get_priority_scheme_service",
+    "get_sign_generation_service",
     "get_lane_validation_service",
     "get_node_service",
     "get_project_service",

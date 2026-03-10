@@ -59,6 +59,8 @@ class IntersectionApproachRepository:
         incoming_edge_id: str,
         order_index: int | None = None,
         name: str | None = None,
+        role: str | None = None,
+        priority_rank: int | None = None,
         commit: bool = True,
     ) -> IntersectionApproachModel:
         approach = IntersectionApproachModel(
@@ -67,6 +69,8 @@ class IntersectionApproachRepository:
             incoming_edge_id=incoming_edge_id,
             order_index=order_index,
             name=name,
+            role=role,
+            priority_rank=priority_rank,
         )
         self.session.add(approach)
         self.session.flush()
@@ -85,6 +89,8 @@ class IntersectionApproachRepository:
                     incoming_edge_id=str(item["incoming_edge_id"]),
                     order_index=int(item["order_index"]) if item.get("order_index") is not None else None,
                     name=str(item["name"]) if item.get("name") is not None else None,
+                    role=str(item["role"]) if item.get("role") is not None else None,
+                    priority_rank=int(item["priority_rank"]) if item.get("priority_rank") is not None else None,
                     commit=False,
                 )
             )
@@ -111,6 +117,37 @@ class IntersectionApproachRepository:
             self.session.commit()
             return self.get(approach.id)  # type: ignore[return-value]
         return approach
+
+    def bulk_update_priority(
+        self,
+        intersection_id: str,
+        items: list[dict[str, object]],
+        *,
+        commit: bool = True,
+    ) -> list[IntersectionApproachModel]:
+        if not items:
+            if commit:
+                self.session.commit()
+            return self.list_by_intersection(intersection_id)
+
+        existing = self.list_by_intersection(intersection_id)
+        existing_by_id = {item.id: item for item in existing}
+        for item in items:
+            approach_id = str(item["approach_id"])
+            entity = existing_by_id.get(approach_id)
+            if entity is None:
+                continue
+            if "role" in item:
+                entity.role = str(item["role"]) if item["role"] is not None else None
+            if "priority_rank" in item:
+                entity.priority_rank = int(item["priority_rank"]) if item["priority_rank"] is not None else None
+            self.session.add(entity)
+
+        self.session.flush()
+        if commit:
+            self.session.commit()
+            return self.list_by_intersection(intersection_id)
+        return existing
 
     def delete_many(self, approach_ids: list[str], *, commit: bool = True) -> int:
         if not approach_ids:

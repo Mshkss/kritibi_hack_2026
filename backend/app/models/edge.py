@@ -96,3 +96,9 @@ class EdgeModel(Base):
         foreign_keys="MovementModel.to_edge_id",
         passive_deletes=True,
     )
+    traffic_signs: Mapped[list["TrafficSignModel"]] = relationship(
+        "TrafficSignModel",
+        back_populates="edge",
+        foreign_keys="TrafficSignModel.edge_id",
+        passive_deletes=True,
+    )

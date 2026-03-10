@@ -1,22 +1,25 @@
-# Domain Contract (Stage: Network + Segment Editor + Connection Layer + Intersection Editor)
+# Domain Contract (Stage: Network + Segment Editor + Connection + Intersection + Priority & Signs)
 
 ## Purpose
 
-Документ фиксирует активную доменную модель, в которой:
-- `Node/Edge/Lane/RoadType` задают дорожный граф и параметры сегментов,
-- `Connection` задает lane-level topological traversability через узел,
-- `Intersection/Approach/Movement` дают editor-layer настройки узла для будущей логики приоритетов/пешеходов/сигналов.
+Документ фиксирует активную доменную модель backend:
+- topology layer: `Node/Edge/Lane/RoadType`,
+- traversability layer: `Connection`,
+- intersection editor layer: `Intersection/IntersectionApproach/Movement`,
+- priority/sign layer: `approach.role/priority_rank` + `TrafficSign`.
 
 `Project` остается корневой агрегирующей сущностью.
 
 ## Core Principles
 
-- `Node` не заменяется `Intersection`; `Intersection` — надстройка над `Node`.
-- `Connection` и `Movement` не дублируют ответственность:
-  - `Connection` = топологически допустимый lane-level переход через node.
-  - `Movement` = управляемая intersection-editor запись поверх `Connection` (enable/disable, metadata).
-- Минимизация неявных массовых эффектов и сохранение предсказуемого поведения sync-операций.
-- SUMO-ready структура (включая `.con.xml`-эквивалент).
+- `Node` и `Intersection` разделены по ответственности:
+  - `Node` = геометрия и топология графа.
+  - `Intersection` = редакторская настройка узла.
+- `Connection` и `Movement` не дублируют источник истины:
+  - `Connection` хранит lane-level переход через node.
+  - `Movement` — intersection-wrapper поверх connection (`is_enabled`, metadata).
+- Priority layer строится поверх `IntersectionApproach`, не создает второй граф.
+- Модель остается SUMO-ready без преждевременного усложнения.
 
 ## Active Entities
 
@@ -101,6 +104,9 @@ Defaults-шаблон параметров edge.
 - `created_at`
 - `updated_at`
 
+Семантика:
+- snapshot defaults (применение в edge копирует значения в edge).
+
 ## Connection
 
 Lane-level directed transition через `via_node`.
@@ -140,7 +146,7 @@ Editor-конфигурация поверх `Node`.
 
 ## IntersectionApproach
 
-Опорная сущность для каждого incoming edge intersection.
+Опорная сущность incoming edge в intersection.
 
 Поля:
 - `id`
@@ -149,12 +155,15 @@ Editor-конфигурация поверх `Node`.
 - `incoming_edge_id`
 - `order_index` nullable
 - `name` nullable
+- `role` nullable (`main` | `secondary`)
+- `priority_rank` nullable (`>= 0`)
 - `created_at`
 - `updated_at`
 
 Инварианты:
 - unique `(intersection_id, incoming_edge_id)`
 - `incoming_edge_id` должен быть incoming для `intersection.node_id`
+- `role` check: `main|secondary|null`
 
 ## Movement
 
@@ -177,71 +186,71 @@ Editor-конфигурация поверх `Node`.
 
 Source of truth:
 - `connection_id` — первичный источник истины.
-- `from/to edge + lane` в `movements` — editor-friendly денормализация/снимок.
+- `from/to edge + lane` — denormalized editor snapshot.
+
+## TrafficSign
+
+Persisted знак для editor/export подготовки.
+
+Поля:
+- `id`
+- `project_id`
+- `intersection_id` nullable
+- `approach_id` nullable
+- `node_id` nullable
+- `edge_id` nullable
+- `sign_type` (`main_road` | `yield` | `stop`)
+- `generated` bool
+- `metadata` JSON nullable
+- `created_at`
+- `updated_at`
 
 Инварианты:
-- unique `(intersection_id, connection_id)`
-- `connection` должен проходить через `intersection.node_id`
-- `approach` должен принадлежать тому же `intersection`
+- должна быть хотя бы одна scope-привязка (`intersection_id` или `node_id` или `edge_id`)
+- generated signs по intersection+approach+type не дублируются.
 
-## Key Semantics
+## Priority/Sign Decisions (MVP)
 
-## Intersection over Node
+1. Source of truth priority scheme:
+- `IntersectionApproach.role` + `IntersectionApproach.priority_rank`.
+- отдельная `priority_scheme` таблица не вводится.
 
-- `Node` остается геометрией/топологией.
-- `Intersection` добавляет редакторскую конфигурацию, не дублируя граф.
+2. Draft policy:
+- неполная схема разрешена к сохранению (draft режим).
+- отдельная validation-операция возвращает `is_valid/is_complete`.
+- экспорт/генерация знаков требуют валидной схемы.
 
-## Movement vs Connection
+3. Sign persistence policy:
+- `TrafficSign` хранится в БД.
+- generated signs создаются/обновляются сервисом.
+- ручные (`generated=false`) не затираются генератором.
 
-- `Connection` хранит допускаемость перехода в графе.
-- `Movement` хранит intersection-level состояние (главное: `is_enabled`), опираясь на `Connection`.
+4. Yield/stop policy:
+- default secondary -> `yield`.
+- `stop` включается явно через policy параметр генерации.
 
-## Disable Semantics
+5. Export hints:
+- derived helper возвращает `node_type`.
+- если приоритетная схема валидна и есть `stop` signs -> `priority_stop`.
+- если валидна без `stop` -> `priority`.
+- иначе `node_type = null`.
 
-- запрет маневра = `movement.is_enabled=false`.
-- это не физическое удаление movement.
-- удаление movement используется только в технической sync/rebuild логике, если включен `remove_stale`.
+6. Regeneration semantics:
+- strategy: upsert generated signs + remove stale generated signs для intersection.
+- manual signs не удаляются.
 
-## Sync Strategies (MVP)
-
-## Approaches Sync
-
-- по умолчанию `add missing only`.
-- stale approaches (edge больше не incoming) не удаляются автоматически без запроса.
-- при `remove_stale=true` (или `add_missing_only=false`) stale approaches удаляются технически.
-
-## Movements Sync
-
-- по умолчанию: create missing from current connections + update mappings при необходимости.
-- stale movements по умолчанию сохраняются (для диагностики) и не удаляются.
-- при `remove_stale=true` (или `add_missing_only=false`) stale movements удаляются технически.
-
-## Underlying Changes Strategy
-
-- если `Connection` удален, связанные `Movement` удаляются каскадно через FK (`ondelete=CASCADE`).
-- если `incoming edge` перестал быть incoming (например topology изменилась), approach становится stale до явного sync с удалением stale.
-- destructive lane change, ломающий `Connection`, блокируется на уровне segment editor.
-
-## Existing Segment/Connection Decisions (unchanged)
+## Existing Stage Decisions (unchanged)
 
 1. `shape` хранится JSON-массивом точек в `edges.shape`.
 2. `numLanes` derived: `len(edge.lanes)`.
 3. `RoadType` — snapshot defaults.
-4. `Connection` autogenerate: add-missing only by default.
+4. `Connection` autogenerate: add-missing only.
 5. U-turn: не авто-генерируется по умолчанию.
-
-## SUMO Readiness
-
-- Node: `.nod.xml`
-- Edge/Lane: `.edg.xml`
-- RoadType: `.typ.xml`
-- Connection: `.con.xml` (`from`, `to`, `fromLane`, `toLane`, `uncontrolled`)
 
 ## Deferred Next Stages
 
-- priority engine
-- pedestrian crossing editor/logic
-- signal groups and traffic light phases
-- conflict matrix / right-of-way calculation
-- roundabout yield logic
-- full SUMO import/export pipeline
+- traffic light phases/signal groups
+- conflict matrix / right-of-way engine
+- pedestrian crossing layer
+- roundabout-specific yield logic
+- full SUMO XML pipeline (import/export orchestration)

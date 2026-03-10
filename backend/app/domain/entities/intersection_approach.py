@@ -13,5 +13,7 @@ class IntersectionApproach:
     incoming_edge_id: UUID
     order_index: int | None
     name: str | None
+    role: str | None
+    priority_rank: int | None
     created_at: datetime
     updated_at: datetime
