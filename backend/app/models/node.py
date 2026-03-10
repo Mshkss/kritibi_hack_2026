@@ -47,3 +47,9 @@ class NodeModel(Base):
         back_populates="to_node",
         foreign_keys="EdgeModel.to_node_id",
     )
+    via_connections: Mapped[list["ConnectionModel"]] = relationship(
+        "ConnectionModel",
+        back_populates="via_node",
+        foreign_keys="ConnectionModel.via_node_id",
+        passive_deletes=True,
+    )

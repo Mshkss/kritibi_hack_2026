@@ -47,3 +47,9 @@ class ProjectModel(Base):
         cascade="all, delete-orphan",
         passive_deletes=True,
     )
+    connections: Mapped[list["ConnectionModel"]] = relationship(
+        "ConnectionModel",
+        back_populates="project",
+        cascade="all, delete-orphan",
+        passive_deletes=True,
+    )
