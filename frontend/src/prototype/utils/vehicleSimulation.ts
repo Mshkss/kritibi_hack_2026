@@ -1,4 +1,5 @@
 import { Edge, NetworkState } from '../types';
+import { calculateEdgeCoefficientMetrics } from './edgeCoefficients';
 
 type LatLngPoint = {
   lat: number;
@@ -59,8 +60,6 @@ const DEFAULT_SPEED_LIMIT_KMH = 60;
 const METERS_PER_DEGREE_LAT = 111320;
 const EPSILON_DISTANCE_METERS = 1e-3;
 const DEGENERATE_EDGE_EFFECTIVE_LENGTH_METERS = 0.5;
-const MIN_SPEED_MPS = 4;
-const MAX_SPEED_MPS = 20;
 const MAX_EDGE_TRANSITIONS_PER_STEP = 32;
 const LOOP_REPEAT_THRESHOLD = 4;
 const LOOP_WINDOW_SIZE = 12;
@@ -115,7 +114,7 @@ const normalizeSpeedMps = (speedLimitKmh: number): number => {
     isFiniteNumber(speedLimitKmh) && speedLimitKmh > 0
       ? speedLimitKmh
       : DEFAULT_SPEED_LIMIT_KMH;
-  return clamp((safeSpeedLimitKmh / 3.6) * 0.5, MIN_SPEED_MPS, MAX_SPEED_MPS);
+  return safeSpeedLimitKmh / 3.6;
 };
 
 const buildDirectedEdgeRuntime = ({
@@ -503,9 +502,10 @@ export const buildSimulationGraph = (
     ];
     if (basePath.some((point) => !isFinitePoint(point))) continue;
 
+    const edgeMetrics = calculateEdgeCoefficientMetrics(edge);
     const speedLimit =
-      isFiniteNumber(edge.speedLimit) && edge.speedLimit > 0
-        ? edge.speedLimit
+      isFiniteNumber(edgeMetrics.finalSpeed) && edgeMetrics.finalSpeed > 0
+        ? edgeMetrics.finalSpeed
         : DEFAULT_SPEED_LIMIT_KMH;
     const canSpawn = canSpawnOnEdge(edge);
 

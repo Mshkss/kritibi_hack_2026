@@ -1,8 +1,9 @@
-import { Edge, NetworkState, Node, NodeType } from '../types';
+﻿import { Edge, NetworkState, Node, NodeType } from '../types';
 
 const INTERSECTION_CONNECTION_NAMES = new Set([
   'Intersection Connection',
   'Соединение перекрёстка',
+  'РЎРѕРµРґРёРЅРµРЅРёРµ РїРµСЂРµРєСЂС‘СЃС‚РєР°',
 ]);
 
 const SPECIAL_NODE_TYPES = new Set<NodeType>([
@@ -37,6 +38,16 @@ type ExportEdge = {
   isForward?: boolean;
   name?: string;
   speedLimit: number;
+  laneWidth: number;
+  turnRadius: number;
+  pedestrianIntensity: number;
+  pedestrianIntensityMode: 'auto' | 'manual';
+  roadSlope: number;
+  parkingType: 1 | 2 | 3;
+  stopType: 1 | 2 | 3;
+  stopTypeMode: 'auto' | 'manual';
+  maneuverType: 1 | 2 | 3 | 4 | 5;
+  turnPercentage: number;
   crossroad: boolean;
   busStop: boolean;
   tags: Record<string, string>;
@@ -141,6 +152,16 @@ export const buildLaneNetworkJsonExport = (state: NetworkState): LaneNetworkJson
           ...(typeof edge.isForward === 'boolean' ? { isForward: edge.isForward } : {}),
           ...(edge.name ? { name: edge.name } : {}),
           speedLimit: edge.speedLimit,
+          laneWidth: edge.laneWidth,
+          turnRadius: edge.turnRadius,
+          pedestrianIntensity: edge.pedestrianIntensity,
+          pedestrianIntensityMode: edge.pedestrianIntensityMode,
+          roadSlope: edge.roadSlope,
+          parkingType: edge.parkingType,
+          stopType: edge.stopType,
+          stopTypeMode: edge.stopTypeMode,
+          maneuverType: edge.maneuverType,
+          turnPercentage: edge.turnPercentage,
           crossroad: edge.crossroad,
           busStop: edge.busStop,
           tags: edge.tags ?? {},
@@ -158,6 +179,16 @@ export const buildLaneNetworkJsonExport = (state: NetworkState): LaneNetworkJson
         ...(typeof edge.isForward === 'boolean' ? { isForward: edge.isForward } : {}),
         ...(edge.name ? { name: edge.name } : {}),
         speedLimit: edge.speedLimit,
+        laneWidth: edge.laneWidth,
+        turnRadius: edge.turnRadius,
+        pedestrianIntensity: edge.pedestrianIntensity,
+        pedestrianIntensityMode: edge.pedestrianIntensityMode,
+        roadSlope: edge.roadSlope,
+        parkingType: edge.parkingType,
+        stopType: edge.stopType,
+        stopTypeMode: edge.stopTypeMode,
+        maneuverType: edge.maneuverType,
+        turnPercentage: edge.turnPercentage,
         crossroad: edge.crossroad,
         busStop: edge.busStop,
         tags: edge.tags ?? {},
@@ -225,6 +256,16 @@ const toWayTags = (edge: ExportEdge): Record<string, string> => {
     'kritibi:target_id': edge.targetId,
     'kritibi:crossroad': edge.crossroad ? 'yes' : 'no',
     'kritibi:bus_stop': edge.busStop ? 'yes' : 'no',
+    'kritibi:lane_width': String(edge.laneWidth),
+    'kritibi:turn_radius': String(edge.turnRadius),
+    'kritibi:pedestrian_intensity': String(edge.pedestrianIntensity),
+    'kritibi:pedestrian_intensity_mode': edge.pedestrianIntensityMode,
+    'kritibi:road_slope': String(edge.roadSlope),
+    'kritibi:parking_type': String(edge.parkingType),
+    'kritibi:stop_type': String(edge.stopType),
+    'kritibi:stop_type_mode': edge.stopTypeMode,
+    'kritibi:maneuver_type': String(edge.maneuverType),
+    'kritibi:turn_percentage': String(edge.turnPercentage),
     description: edge.description,
   };
 
@@ -295,3 +336,4 @@ export const downloadTextFile = (content: string, fileName: string, mimeType: st
   document.body.removeChild(anchor);
   URL.revokeObjectURL(url);
 };
+

@@ -1,4 +1,4 @@
-import { Edge, NetworkState, Node, NodeType, Point } from '../types';
+import { Edge, EdgeValueMode, ManeuverType, NetworkState, Node, NodeType, ParkingType, Point, StopType } from '../types';
 
 export const PERSISTED_EDITOR_STATE_VERSION = 1 as const;
 export const NETWORK_EDITOR_STORAGE_KEY = 'lane-network-editor.session.v1';
@@ -42,6 +42,10 @@ const NODE_TYPE_SET: Set<NodeType> = new Set([
   'bus_stop',
   'speed_limit',
 ]);
+const EDGE_VALUE_MODE_SET: Set<EdgeValueMode> = new Set(['auto', 'manual']);
+const PARKING_TYPE_SET: Set<ParkingType> = new Set([1, 2, 3]);
+const STOP_TYPE_SET: Set<StopType> = new Set([1, 2, 3]);
+const MANEUVER_TYPE_SET: Set<ManeuverType> = new Set([1, 2, 3, 4, 5]);
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -51,6 +55,14 @@ const isFiniteNumber = (value: unknown): value is number =>
 
 const isNodeType = (value: unknown): value is NodeType =>
   typeof value === 'string' && NODE_TYPE_SET.has(value as NodeType);
+const isEdgeValueMode = (value: unknown): value is EdgeValueMode =>
+  typeof value === 'string' && EDGE_VALUE_MODE_SET.has(value as EdgeValueMode);
+const isParkingType = (value: unknown): value is ParkingType =>
+  isFiniteNumber(value) && PARKING_TYPE_SET.has(value as ParkingType);
+const isStopType = (value: unknown): value is StopType =>
+  isFiniteNumber(value) && STOP_TYPE_SET.has(value as StopType);
+const isManeuverType = (value: unknown): value is ManeuverType =>
+  isFiniteNumber(value) && MANEUVER_TYPE_SET.has(value as ManeuverType);
 
 const isPoint = (value: unknown): value is Point => {
   if (!isRecord(value)) return false;
@@ -82,6 +94,25 @@ const isEdge = (value: unknown): value is Edge => {
   if (typeof value.crossroad !== 'boolean') return false;
   if (typeof value.busStop !== 'boolean') return false;
   if (!isFiniteNumber(value.speedLimit)) return false;
+  if (value.laneWidth !== undefined && (!isFiniteNumber(value.laneWidth) || value.laneWidth <= 0)) return false;
+  if (value.turnRadius !== undefined && (!isFiniteNumber(value.turnRadius) || value.turnRadius < 0)) return false;
+  if (
+    value.pedestrianIntensity !== undefined &&
+    (!isFiniteNumber(value.pedestrianIntensity) || value.pedestrianIntensity < 0)
+  ) {
+    return false;
+  }
+  if (value.pedestrianIntensityMode !== undefined && !isEdgeValueMode(value.pedestrianIntensityMode)) {
+    return false;
+  }
+  if (value.roadSlope !== undefined && !isFiniteNumber(value.roadSlope)) return false;
+  if (value.parkingType !== undefined && !isParkingType(value.parkingType)) return false;
+  if (value.stopType !== undefined && !isStopType(value.stopType)) return false;
+  if (value.stopTypeMode !== undefined && !isEdgeValueMode(value.stopTypeMode)) return false;
+  if (value.maneuverType !== undefined && !isManeuverType(value.maneuverType)) return false;
+  if (value.turnPercentage !== undefined && (!isFiniteNumber(value.turnPercentage) || value.turnPercentage < 0)) {
+    return false;
+  }
   if (value.name !== undefined && typeof value.name !== 'string') return false;
   if (value.laneIndex !== undefined && !isFiniteNumber(value.laneIndex)) return false;
   if (value.isForward !== undefined && typeof value.isForward !== 'boolean') return false;

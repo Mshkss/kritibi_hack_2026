@@ -1,7 +1,15 @@
-import { v4 as uuidv4 } from 'uuid';
+﻿import { v4 as uuidv4 } from 'uuid';
 import { NetworkState, Node, Edge, NodeType } from '../types';
 
 const DEFAULT_SPEED_LIMIT = 60;
+const DEFAULT_LANE_WIDTH = 3.5;
+const DEFAULT_TURN_RADIUS = 0;
+const DEFAULT_PEDESTRIAN_INTENSITY = 0;
+const DEFAULT_ROAD_SLOPE = 0;
+const DEFAULT_PARKING_TYPE = 1;
+const DEFAULT_STOP_TYPE = 1;
+const DEFAULT_MANEUVER_TYPE = 1;
+const DEFAULT_TURN_PERCENTAGE = 20;
 const KRITIBI_TAG_PREFIX = 'kritibi:';
 
 type OsmNodeRecord = {
@@ -34,6 +42,22 @@ const parseOptionalInt = (value: string | undefined): number | undefined => {
   if (value === undefined) return undefined;
   const parsed = Number.parseInt(value, 10);
   return Number.isFinite(parsed) ? parsed : undefined;
+};
+
+const parseOptionalMode = (value: string | undefined): 'auto' | 'manual' | undefined => {
+  if (value === 'auto' || value === 'manual') return value;
+  return undefined;
+};
+
+const parseOptionalIntInRange = (
+  value: string | undefined,
+  min: number,
+  max: number,
+): number | undefined => {
+  const parsed = parseOptionalInt(value);
+  if (parsed === undefined) return undefined;
+  if (parsed < min || parsed > max) return undefined;
+  return parsed;
 };
 
 const normalizeNodeType = (value: string | undefined): NodeType => {
@@ -120,6 +144,20 @@ const parseKritibiLaneOsm = (xmlDoc: XMLDocument): NetworkState => {
       .map(node => ({ lat: node.lat, lng: node.lng }));
 
     const speedLimit = parseNumericValue(tags.maxspeed) ?? DEFAULT_SPEED_LIMIT;
+    const laneWidth = parseNumericValue(tags['kritibi:lane_width']) ?? DEFAULT_LANE_WIDTH;
+    const turnRadius = parseNumericValue(tags['kritibi:turn_radius']) ?? DEFAULT_TURN_RADIUS;
+    const pedestrianIntensity =
+      parseOptionalInt(tags['kritibi:pedestrian_intensity']) ?? DEFAULT_PEDESTRIAN_INTENSITY;
+    const pedestrianIntensityMode =
+      parseOptionalMode(tags['kritibi:pedestrian_intensity_mode']) ?? 'auto';
+    const roadSlope = parseNumericValue(tags['kritibi:road_slope']) ?? DEFAULT_ROAD_SLOPE;
+    const parkingType = parseOptionalIntInRange(tags['kritibi:parking_type'], 1, 3) ?? DEFAULT_PARKING_TYPE;
+    const stopType = parseOptionalIntInRange(tags['kritibi:stop_type'], 1, 3) ?? DEFAULT_STOP_TYPE;
+    const stopTypeMode = parseOptionalMode(tags['kritibi:stop_type_mode']) ?? 'auto';
+    const maneuverType =
+      parseOptionalIntInRange(tags['kritibi:maneuver_type'], 1, 5) ?? DEFAULT_MANEUVER_TYPE;
+    const turnPercentage =
+      parseNumericValue(tags['kritibi:turn_percentage']) ?? DEFAULT_TURN_PERCENTAGE;
     const laneIndex = parseOptionalInt(tags['kritibi:lane_index']);
     const isForwardTag = tags['kritibi:is_forward'];
 
@@ -137,6 +175,16 @@ const parseKritibiLaneOsm = (xmlDoc: XMLDocument): NetworkState => {
       crossroad: tags['kritibi:crossroad'] === 'yes',
       busStop: tags['kritibi:bus_stop'] === 'yes',
       speedLimit,
+      laneWidth,
+      turnRadius,
+      pedestrianIntensity,
+      pedestrianIntensityMode,
+      roadSlope,
+      parkingType: parkingType as 1 | 2 | 3,
+      stopType: stopType as 1 | 2 | 3,
+      stopTypeMode,
+      maneuverType: maneuverType as 1 | 2 | 3 | 4 | 5,
+      turnPercentage,
       tags: edgeTags,
     };
 
@@ -338,7 +386,17 @@ const parseGenericOsm = (xmlDoc: XMLDocument): NetworkState => {
             crossroad: false,
             busStop: false,
             speedLimit: DEFAULT_SPEED_LIMIT,
-            name: name ? `${name} (Полоса ${laneIdx + 1})` : `Полоса ${laneIdx + 1}`,
+            laneWidth: DEFAULT_LANE_WIDTH,
+            turnRadius: DEFAULT_TURN_RADIUS,
+            pedestrianIntensity: DEFAULT_PEDESTRIAN_INTENSITY,
+            pedestrianIntensityMode: 'auto',
+            roadSlope: DEFAULT_ROAD_SLOPE,
+            parkingType: 1,
+            stopType: 1,
+            stopTypeMode: 'auto',
+            maneuverType: 1,
+            turnPercentage: DEFAULT_TURN_PERCENTAGE,
+            name: name ? `${name} (Lane ${laneIdx + 1})` : `Lane ${laneIdx + 1}`,
             laneIndex: laneIdx,
             isForward,
             tags,
@@ -365,20 +423,36 @@ const parseGenericOsm = (xmlDoc: XMLDocument): NetworkState => {
       Object.values(nodesByLaneIdx).forEach(nodesInLane => {
         // Intersection connectors may be almost zero-length after lane offset projection.
         // Runtime vehicle simulation must still preserve and traverse these hidden links.
+        // Keep them explicitly directed by creating one-way links in both directions.
         for (let i = 0; i < nodesInLane.length; i++) {
           for (let j = i + 1; j < nodesInLane.length; j++) {
-            const edgeId = uuidv4();
-            finalEdges[edgeId] = {
-              id: edgeId,
-              sourceId: nodesInLane[i],
-              targetId: nodesInLane[j],
-              points: [],
-              isOneWay: false,
-              crossroad: false,
-              busStop: false,
-              speedLimit: DEFAULT_SPEED_LIMIT,
-              name: 'Соединение перекрёстка',
+            const addIntersectionConnector = (sourceId: string, targetId: string) => {
+              const edgeId = uuidv4();
+              finalEdges[edgeId] = {
+                id: edgeId,
+                sourceId,
+                targetId,
+                points: [],
+                isOneWay: true,
+                crossroad: false,
+                busStop: false,
+                speedLimit: DEFAULT_SPEED_LIMIT,
+                laneWidth: DEFAULT_LANE_WIDTH,
+                turnRadius: DEFAULT_TURN_RADIUS,
+                pedestrianIntensity: DEFAULT_PEDESTRIAN_INTENSITY,
+                pedestrianIntensityMode: 'auto',
+                roadSlope: DEFAULT_ROAD_SLOPE,
+                parkingType: 1,
+                stopType: 1,
+                stopTypeMode: 'auto',
+                maneuverType: 1,
+                turnPercentage: DEFAULT_TURN_PERCENTAGE,
+                name: 'Соединение перекрёстка',
+              };
             };
+
+            addIntersectionConnector(nodesInLane[i], nodesInLane[j]);
+            addIntersectionConnector(nodesInLane[j], nodesInLane[i]);
           }
         }
       });
