@@ -92,6 +92,7 @@ class EdgeRepository:
                 edge_id=edge.id,
                 index=int(lane["index"]),
                 allow=lane.get("allow"),
+                disallow=lane.get("disallow"),
                 speed=lane.get("speed"),
                 width=lane.get("width"),
             )
@@ -117,25 +118,28 @@ class EdgeRepository:
         return edge
 
     def replace_lanes(self, edge: EdgeModel, lanes: list[dict[str, object]], *, commit: bool = True) -> EdgeModel:
-        self.session.query(LaneModel).filter(LaneModel.edge_id == edge.id).delete()
+        for lane_model in list(edge.lanes):
+            self.session.delete(lane_model)
         self.session.flush()
 
-        lane_models = [
-            LaneModel(
+        new_lanes: list[LaneModel] = []
+        for lane in lanes:
+            lane_model = LaneModel(
                 edge_id=edge.id,
                 index=int(lane["index"]),
                 allow=lane.get("allow"),
+                disallow=lane.get("disallow"),
                 speed=lane.get("speed"),
                 width=lane.get("width"),
             )
-            for lane in lanes
-        ]
-        self.session.add_all(lane_models)
+            self.session.add(lane_model)
+            new_lanes.append(lane_model)
         self.session.flush()
+        edge.lanes = new_lanes
 
         if commit:
             self.session.commit()
-            return self.get(edge.id)  # type: ignore[return-value]
+            self.session.refresh(edge)
         return edge
 
     def delete(self, edge: EdgeModel, *, commit: bool = True) -> None:
@@ -143,6 +147,20 @@ class EdgeRepository:
         self.session.flush()
         if commit:
             self.session.commit()
+
+    def get_lane_in_edge(self, edge_id: str, lane_id: str) -> LaneModel | None:
+        stmt = select(LaneModel).where(LaneModel.edge_id == edge_id, LaneModel.id == lane_id)
+        return self.session.scalar(stmt)
+
+    def update_lane(self, lane: LaneModel, *, commit: bool = True, **kwargs: object) -> LaneModel:
+        for field, value in kwargs.items():
+            setattr(lane, field, value)
+        self.session.add(lane)
+        self.session.flush()
+        if commit:
+            self.session.commit()
+            self.session.refresh(lane)
+        return lane
 
     def commit(self) -> None:
         self.session.commit()

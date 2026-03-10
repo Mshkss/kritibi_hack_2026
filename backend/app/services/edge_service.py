@@ -19,6 +19,7 @@ from app.schemas.edge import (
 )
 from app.services.errors import ConflictError, NotFoundError, ValidationError
 from app.services.geometry_service import GeometryService, GeometryValidationError
+from app.services.lane_validation_service import LaneValidationService
 from app.services.project_service import ProjectService
 
 
@@ -32,12 +33,14 @@ class EdgeService:
         road_type_repository: RoadTypeRepository,
         project_service: ProjectService,
         geometry_service: GeometryService,
+        lane_validation_service: LaneValidationService,
     ):
         self._edge_repository = edge_repository
         self._node_repository = node_repository
         self._road_type_repository = road_type_repository
         self._project_service = project_service
         self._geometry_service = geometry_service
+        self._lane_validation = lane_validation_service
 
     def create_directed(self, project_id: str, payload: EdgeCreate):
         self._project_service.get(project_id)
@@ -275,6 +278,7 @@ class EdgeService:
                 {
                     "index": lane.index,
                     "allow": lane.allow,
+                    "disallow": lane.disallow,
                     "speed": road_type.speed if road_type.speed is not None else lane.speed,
                     "width": road_type.width if road_type.width is not None else lane.width,
                 }
@@ -322,29 +326,13 @@ class EdgeService:
                 {
                     "index": index,
                     "allow": None,
+                    "disallow": None,
                     "speed": edge_speed,
                     "width": edge_width,
                 }
                 for index in range(default_num_lanes)
             ]
-
-        if len(lane_dicts) == 0:
-            raise ValidationError("Edge must contain at least one lane")
-
-        indexes = [lane["index"] for lane in lane_dicts]
-        if len(indexes) != len(set(indexes)):
-            raise ValidationError("Lane index must be unique inside edge")
-        if any(index < 0 for index in indexes):
-            raise ValidationError("Lane index must be >= 0")
-
-        for lane in lane_dicts:
-            if lane.get("speed") is not None and float(lane["speed"]) <= 0:
-                raise ValidationError("Lane speed must be > 0")
-            if lane.get("width") is not None and float(lane["width"]) <= 0:
-                raise ValidationError("Lane width must be > 0")
-
-        lane_dicts.sort(key=lambda item: int(item["index"]))
-        return lane_dicts
+        return self._lane_validation.validate_lane_replace_list(lane_dicts)
 
     def _compose_edge_values(
         self,

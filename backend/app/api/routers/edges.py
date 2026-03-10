@@ -4,18 +4,23 @@ from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status
 
-from app.api.deps import get_edge_service
+from app.api.deps import get_edge_service, get_road_segment_editor_service
 from app.api.serializers import edge_to_read
 from app.schemas.edge import (
     EdgeBidirectionalCreate,
     EdgeCreate,
     EdgeRead,
-    EdgeRoadTypePatch,
-    EdgeShapePatch,
-    EdgeUpdate,
 )
-from app.schemas.lane import LaneUpsert
+from app.schemas.edge_editor import (
+    ApplyRoadTypeRequest,
+    EdgeEditorResponse,
+    EdgePatchRequest,
+    EdgeShapePatchRequest,
+    LanePatchRequest,
+    LaneReplaceListRequest,
+)
 from app.services.edge_service import EdgeService
+from app.services.road_segment_editor_service import RoadSegmentEditorService
 from app.services.errors import ConflictError, NotFoundError, ValidationError
 
 router = APIRouter(prefix="/projects/{project_id}/edges")
@@ -72,15 +77,28 @@ def get_edge(project_id: UUID, edge_id: UUID, service: EdgeService = Depends(get
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 
 
+@router.get("/{edge_id}/editor", response_model=EdgeEditorResponse)
+def get_edge_editor(
+    project_id: UUID,
+    edge_id: UUID,
+    service: RoadSegmentEditorService = Depends(get_road_segment_editor_service),
+) -> EdgeEditorResponse:
+    try:
+        card = service.get_editor_card(str(project_id), str(edge_id))
+        return EdgeEditorResponse(edge=edge_to_read(card["edge"]), road_type=card["road_type"])
+    except NotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+
 @router.patch("/{edge_id}", response_model=EdgeRead)
 def update_edge(
     project_id: UUID,
     edge_id: UUID,
-    payload: EdgeUpdate,
-    service: EdgeService = Depends(get_edge_service),
+    payload: EdgePatchRequest,
+    service: RoadSegmentEditorService = Depends(get_road_segment_editor_service),
 ) -> EdgeRead:
     try:
-        edge = service.patch(str(project_id), str(edge_id), payload)
+        edge = service.patch_edge(str(project_id), str(edge_id), payload)
         return edge_to_read(edge)
     except ValidationError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
@@ -94,11 +112,26 @@ def update_edge(
 def patch_shape(
     project_id: UUID,
     edge_id: UUID,
-    payload: EdgeShapePatch,
-    service: EdgeService = Depends(get_edge_service),
+    payload: EdgeShapePatchRequest,
+    service: RoadSegmentEditorService = Depends(get_road_segment_editor_service),
 ) -> EdgeRead:
     try:
         edge = service.patch_shape(str(project_id), str(edge_id), payload)
+        return edge_to_read(edge)
+    except ValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except NotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+
+@router.post("/{edge_id}/recalculate-length", response_model=EdgeRead)
+def recalculate_length(
+    project_id: UUID,
+    edge_id: UUID,
+    service: RoadSegmentEditorService = Depends(get_road_segment_editor_service),
+) -> EdgeRead:
+    try:
+        edge = service.recalculate_length(str(project_id), str(edge_id))
         return edge_to_read(edge)
     except ValidationError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
@@ -110,11 +143,11 @@ def patch_shape(
 def replace_lanes(
     project_id: UUID,
     edge_id: UUID,
-    lanes: list[LaneUpsert],
-    service: EdgeService = Depends(get_edge_service),
+    payload: LaneReplaceListRequest,
+    service: RoadSegmentEditorService = Depends(get_road_segment_editor_service),
 ) -> EdgeRead:
     try:
-        edge = service.replace_lanes(str(project_id), str(edge_id), lanes)
+        edge = service.replace_lanes(str(project_id), str(edge_id), payload)
         return edge_to_read(edge)
     except ValidationError as exc:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
@@ -124,12 +157,31 @@ def replace_lanes(
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
 
 
-@router.patch("/{edge_id}/road-type", response_model=EdgeRead)
+@router.patch("/{edge_id}/lanes/{lane_id}", response_model=EdgeRead)
+def patch_lane(
+    project_id: UUID,
+    edge_id: UUID,
+    lane_id: UUID,
+    payload: LanePatchRequest,
+    service: RoadSegmentEditorService = Depends(get_road_segment_editor_service),
+) -> EdgeRead:
+    try:
+        edge = service.patch_lane(str(project_id), str(edge_id), str(lane_id), payload)
+        return edge_to_read(edge)
+    except ValidationError as exc:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(exc)) from exc
+    except ConflictError as exc:
+        raise HTTPException(status_code=status.HTTP_409_CONFLICT, detail=str(exc)) from exc
+    except NotFoundError as exc:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail=str(exc)) from exc
+
+
+@router.post("/{edge_id}/apply-road-type", response_model=EdgeRead)
 def apply_road_type(
     project_id: UUID,
     edge_id: UUID,
-    payload: EdgeRoadTypePatch,
-    service: EdgeService = Depends(get_edge_service),
+    payload: ApplyRoadTypeRequest,
+    service: RoadSegmentEditorService = Depends(get_road_segment_editor_service),
 ) -> EdgeRead:
     try:
         edge = service.apply_road_type(str(project_id), str(edge_id), payload)
