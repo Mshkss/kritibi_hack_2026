@@ -1,12 +1,18 @@
 # Domain Contract
 
 Entities:
-- Project
-- Node
-- Edge
-- Lane
-- RoadType
+- Project 
+- Node - узлы
+- Edge - соединение двух узлов (Участок дороги между двумя узлами. Edge — всегда однонаправленный. Двусторонняя дорога = два Edge.)
+
+- Lane - Полоса движения внутри участка. Edge содержит одну или более полос.
+
+- RoadType Тип дороги. (городская дорога магистраль двухполосная)
+
 - Connection
-- Intersection
+
+- Intersection Логическая модель пересечения. Intersection создаётся поверх Node.
+
 - Movement
+
 - Phase
