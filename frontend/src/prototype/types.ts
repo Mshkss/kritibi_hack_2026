@@ -3,6 +3,29 @@ export type EdgeValueMode = 'auto' | 'manual';
 export type ParkingType = 1 | 2 | 3;
 export type StopType = 1 | 2 | 3;
 export type ManeuverType = 1 | 2 | 3 | 4 | 5;
+export type TrafficLightSide = 'north' | 'east' | 'south' | 'west';
+export type TrafficLightColor = 'red' | 'yellow' | 'green';
+export type TrafficLightPhase =
+  | 'NS_GREEN'
+  | 'NS_YELLOW'
+  | 'ALL_RED_NS_TO_EW'
+  | 'EW_GREEN'
+  | 'EW_YELLOW'
+  | 'ALL_RED_EW_TO_NS';
+
+export type TrafficLightTimings = {
+  nsGreenSec: number;
+  nsYellowSec: number;
+  ewGreenSec: number;
+  ewYellowSec: number;
+  allRedSec: number;
+};
+
+export type TrafficLightControlConfig = {
+  timings: TrafficLightTimings;
+  cycleOffsetSec: number;
+  approachSideOverrides: Record<string, TrafficLightSide>;
+};
 
 export type Point = {
   lat: number;
@@ -16,6 +39,7 @@ export type Node = {
   name?: string;
   speedLimit?: number;
   type?: NodeType;
+  trafficLightControl?: TrafficLightControlConfig;
 };
 
 export type Edge = {

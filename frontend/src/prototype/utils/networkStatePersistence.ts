@@ -1,4 +1,15 @@
-import { Edge, EdgeValueMode, ManeuverType, NetworkState, Node, NodeType, ParkingType, Point, StopType } from '../types';
+import {
+  Edge,
+  EdgeValueMode,
+  ManeuverType,
+  NetworkState,
+  Node,
+  NodeType,
+  ParkingType,
+  Point,
+  StopType,
+  TrafficLightSide,
+} from '../types';
 
 export const PERSISTED_EDITOR_STATE_VERSION = 1 as const;
 export const NETWORK_EDITOR_STORAGE_KEY = 'lane-network-editor.session.v1';
@@ -47,6 +58,12 @@ const EDGE_VALUE_MODE_SET: Set<EdgeValueMode> = new Set(['auto', 'manual']);
 const PARKING_TYPE_SET: Set<ParkingType> = new Set([1, 2, 3]);
 const STOP_TYPE_SET: Set<StopType> = new Set([1, 2, 3]);
 const MANEUVER_TYPE_SET: Set<ManeuverType> = new Set([1, 2, 3, 4, 5]);
+const TRAFFIC_LIGHT_SIDE_SET: Set<TrafficLightSide> = new Set([
+  'north',
+  'east',
+  'south',
+  'west',
+]);
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -64,10 +81,28 @@ const isStopType = (value: unknown): value is StopType =>
   isFiniteNumber(value) && STOP_TYPE_SET.has(value as StopType);
 const isManeuverType = (value: unknown): value is ManeuverType =>
   isFiniteNumber(value) && MANEUVER_TYPE_SET.has(value as ManeuverType);
+const isTrafficLightSide = (value: unknown): value is TrafficLightSide =>
+  typeof value === 'string' && TRAFFIC_LIGHT_SIDE_SET.has(value as TrafficLightSide);
 
 const isPoint = (value: unknown): value is Point => {
   if (!isRecord(value)) return false;
   return isFiniteNumber(value.lat) && isFiniteNumber(value.lng);
+};
+
+const isTrafficLightControlConfig = (value: unknown): boolean => {
+  if (!isRecord(value)) return false;
+  if (!isRecord(value.timings)) return false;
+  if (!isFiniteNumber(value.timings.nsGreenSec) || value.timings.nsGreenSec <= 0) return false;
+  if (!isFiniteNumber(value.timings.nsYellowSec) || value.timings.nsYellowSec <= 0) return false;
+  if (!isFiniteNumber(value.timings.ewGreenSec) || value.timings.ewGreenSec <= 0) return false;
+  if (!isFiniteNumber(value.timings.ewYellowSec) || value.timings.ewYellowSec <= 0) return false;
+  if (!isFiniteNumber(value.timings.allRedSec) || value.timings.allRedSec < 0) return false;
+  if (!isFiniteNumber(value.cycleOffsetSec)) return false;
+  if (!isRecord(value.approachSideOverrides)) return false;
+
+  return Object.entries(value.approachSideOverrides).every(
+    ([nodeId, side]) => nodeId.length > 0 && isTrafficLightSide(side),
+  );
 };
 
 const isNode = (value: unknown): value is Node => {
@@ -77,6 +112,9 @@ const isNode = (value: unknown): value is Node => {
   if (value.name !== undefined && typeof value.name !== 'string') return false;
   if (value.speedLimit !== undefined && !isFiniteNumber(value.speedLimit)) return false;
   if (value.type !== undefined && !isNodeType(value.type)) return false;
+  if (value.trafficLightControl !== undefined && !isTrafficLightControlConfig(value.trafficLightControl)) {
+    return false;
+  }
   return true;
 };
 
