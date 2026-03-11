@@ -4,6 +4,7 @@ export const PERSISTED_EDITOR_STATE_VERSION = 1 as const;
 export const NETWORK_EDITOR_STORAGE_KEY = 'lane-network-editor.session.v1';
 export const NETWORK_EDITOR_HISTORY_LIMIT = 100;
 export const NETWORK_EDITOR_AUTOSAVE_DEBOUNCE_MS = 300;
+export const NETWORK_EDITOR_AUTOSAVE_MIN_INTERVAL_MS = 1200;
 
 export type EditorHistoryState = {
   history: NetworkState[];
@@ -128,6 +129,38 @@ const isNetworkState = (value: unknown): value is NetworkState => {
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
 
+const persistedPayloadCacheByStorageKey = new Map<
+  string,
+  {
+    fingerprint: string;
+    serialized: string;
+  }
+>();
+const networkStateRefIds = new WeakMap<NetworkState, number>();
+let nextNetworkStateRefId = 1;
+
+const getNetworkStateRefId = (state: NetworkState): number => {
+  const existing = networkStateRefIds.get(state);
+  if (existing !== undefined) return existing;
+  const next = nextNetworkStateRefId++;
+  networkStateRefIds.set(state, next);
+  return next;
+};
+
+const buildHistoryFingerprint = (history: NetworkState[], currentIndex: number): string => {
+  const safeIndex = clamp(currentIndex, 0, history.length - 1);
+  const currentState = history[safeIndex];
+  const firstState = history[0];
+  const lastState = history[history.length - 1];
+  return [
+    history.length,
+    safeIndex,
+    getNetworkStateRefId(firstState),
+    getNetworkStateRefId(currentState),
+    getNetworkStateRefId(lastState),
+  ].join('|');
+};
+
 const isQuotaExceededError = (error: unknown): boolean => {
   if (!(error instanceof DOMException)) return false;
   return error.name === 'QuotaExceededError' || error.name === 'NS_ERROR_DOM_QUOTA_REACHED';
@@ -212,7 +245,14 @@ export function loadPersistedHistoryState({
 
   try {
     const parsed = JSON.parse(rawText) as unknown;
-    return sanitizePersistedHistory(parsed, normalizeState);
+    const sanitized = sanitizePersistedHistory(parsed, normalizeState);
+    if (sanitized) {
+      persistedPayloadCacheByStorageKey.set(storageKey, {
+        fingerprint: buildHistoryFingerprint(sanitized.history, sanitized.currentIndex),
+        serialized: rawText,
+      });
+    }
+    return sanitized;
   } catch {
     return null;
   }
@@ -232,10 +272,21 @@ export function persistHistoryStateWithFallback({
     const startIndex = history.length - candidateLength;
     const candidateHistory = history.slice(startIndex);
     const candidateIndex = clamp(currentIndex - startIndex, 0, candidateHistory.length - 1);
+    const candidateFingerprint = buildHistoryFingerprint(candidateHistory, candidateIndex);
+    const cached = persistedPayloadCacheByStorageKey.get(storageKey);
+    if (cached && cached.fingerprint === candidateFingerprint) {
+      return;
+    }
+
     const payload = toPersistedPayload(candidateHistory, candidateIndex);
+    const serializedPayload = JSON.stringify(payload);
 
     try {
-      window.localStorage.setItem(storageKey, JSON.stringify(payload));
+      window.localStorage.setItem(storageKey, serializedPayload);
+      persistedPayloadCacheByStorageKey.set(storageKey, {
+        fingerprint: candidateFingerprint,
+        serialized: serializedPayload,
+      });
       return;
     } catch (error) {
       if (isQuotaExceededError(error) && candidateLength > 1) {
