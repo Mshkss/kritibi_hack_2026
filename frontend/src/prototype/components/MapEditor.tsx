@@ -14,6 +14,7 @@ import {
 } from '../utils/networkExport';
 import {
   NETWORK_EDITOR_AUTOSAVE_DEBOUNCE_MS,
+  NETWORK_EDITOR_AUTOSAVE_MIN_INTERVAL_MS,
   NETWORK_EDITOR_HISTORY_LIMIT,
   NETWORK_EDITOR_STORAGE_KEY,
   appendHistoryState,
@@ -494,6 +495,7 @@ export function MapEditor() {
     ),
   );
   const saveTimeoutRef = useRef<number | null>(null);
+  const lastAutosaveAtRef = useRef<number>(0);
 
   const { history, currentIndex } = historyState;
   const state = history[currentIndex];
@@ -540,7 +542,19 @@ export function MapEditor() {
     }
 
     saveTimeoutRef.current = window.setTimeout(() => {
+      const now = Date.now();
+      const elapsedSinceLastAutosave = now - lastAutosaveAtRef.current;
+      if (elapsedSinceLastAutosave < NETWORK_EDITOR_AUTOSAVE_MIN_INTERVAL_MS) {
+        const waitMs = NETWORK_EDITOR_AUTOSAVE_MIN_INTERVAL_MS - elapsedSinceLastAutosave;
+        saveTimeoutRef.current = window.setTimeout(() => {
+          flushPersistedState();
+          lastAutosaveAtRef.current = Date.now();
+          saveTimeoutRef.current = null;
+        }, waitMs);
+        return;
+      }
       flushPersistedState();
+      lastAutosaveAtRef.current = now;
       saveTimeoutRef.current = null;
     }, NETWORK_EDITOR_AUTOSAVE_DEBOUNCE_MS);
 
@@ -561,6 +575,7 @@ export function MapEditor() {
         saveTimeoutRef.current = null;
       }
       flushPersistedState();
+      lastAutosaveAtRef.current = Date.now();
     };
 
     window.addEventListener('beforeunload', handleBeforeUnload);
