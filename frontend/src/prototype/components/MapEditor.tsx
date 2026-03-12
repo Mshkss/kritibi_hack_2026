@@ -8,7 +8,6 @@ import {
   useMapEvents,
   Tooltip,
   useMap,
-  CircleMarker,
 } from 'react-leaflet';
 import 'leaflet/dist/leaflet.css';
 import L from 'leaflet';
@@ -18,6 +17,7 @@ import {
   NetworkState,
   Node,
   NodeType,
+  TrafficLightControlConfig,
   TrafficLightColor,
   TrafficLightPhase,
   TrafficLightSide,
@@ -52,12 +52,17 @@ import {
   calculateNetworkCoefficientSummary,
 } from '../utils/edgeCoefficients';
 import {
+  calculateSmartTrafficLightCoordination,
+  type TrafficLightApproachForCoordination,
+} from '../utils/trafficLightCoordination';
+import {
   TRAFFIC_LIGHT_APPROACH_RADIUS_METERS,
   buildTrafficLightLocalFrame,
   deriveTrafficLightApproachSide,
   distanceMeters,
   getDefaultTrafficLightControlConfig,
   getDefaultTrafficLightLocalFrame,
+  getTrafficLightColorsByPhase,
   getTrafficLightRuntimeState,
   getTrafficLightSideUnitVector,
   sanitizeTrafficLightControlConfig,
@@ -252,18 +257,35 @@ const DEFAULT_PARKING_TYPE: 1 | 2 | 3 = 1;
 const DEFAULT_STOP_TYPE: 1 | 2 | 3 = 1;
 const BUS_STOP_TYPE: 1 | 2 | 3 = 2;
 const DEFAULT_MANEUVER_TYPE: 1 | 2 | 3 | 4 | 5 = 1;
+const PARKING_TYPE_LABELS: Record<1 | 2 | 3, string> = {
+  1: 'нет',
+  2: 'выделенный карман',
+  3: 'на полосе',
+};
+const STOP_TYPE_LABELS: Record<1 | 2 | 3, string> = {
+  1: 'нет',
+  2: 'выделенный карман',
+  3: 'на полосе',
+};
+const MANEUVER_TYPE_LABELS: Record<1 | 2 | 3 | 4 | 5, string> = {
+  1: 'нет',
+  2: 'пересечение/перестроение',
+  3: 'правый поворот',
+  4: 'выезд',
+  5: 'левый поворот',
+};
 const DEFAULT_TURN_PERCENTAGE = 20;
 const CROSSING_RADIUS_METERS = 10;
 const BUS_STOP_RADIUS_METERS = 15;
 const SPEED_LIMIT_DETECTION_RADIUS_METERS = 15;
 const TRAFFIC_LIGHT_INDICATOR_OFFSET_METERS = 8;
-const TRAFFIC_LIGHT_INDICATOR_RADIUS_PX = 5;
+const TRAFFIC_LIGHT_INDICATOR_RADIUS_PX = 11;
 const TRAFFIC_LIGHT_SIDE_ORDER: TrafficLightSide[] = ['north', 'east', 'south', 'west'];
 const TRAFFIC_LIGHT_SIDE_LABELS: Record<TrafficLightSide, string> = {
-  north: 'A+',
-  east: 'B+',
-  south: 'A-',
-  west: 'B-',
+  north: 'Север',
+  east: 'Восток',
+  south: 'Юг',
+  west: 'Запад',
 };
 const TRAFFIC_LIGHT_COLOR_HEX: Record<TrafficLightColor, string> = {
   red: '#ef4444',
@@ -279,8 +301,75 @@ const TRAFFIC_LIGHT_PHASE_LABELS: Record<TrafficLightPhase, string> = {
   EW_YELLOW: 'B yellow',
   ALL_RED_EW_TO_NS: 'all-red B->A',
 };
+const TRAFFIC_LIGHT_PHASE_SEQUENCE: TrafficLightPhase[] = [
+  'NS_GREEN',
+  'NS_YELLOW',
+  'ALL_RED_NS_TO_EW',
+  'EW_GREEN',
+  'EW_YELLOW',
+  'ALL_RED_EW_TO_NS',
+];
+const trafficLightSignalIconCache = new Map<string, L.DivIcon>();
 const isTrafficLightSideValue = (value: string): value is TrafficLightSide =>
   TRAFFIC_LIGHT_SIDE_ORDER.includes(value as TrafficLightSide);
+
+const getTrafficLightPhaseDurationSec = (
+  phase: TrafficLightPhase,
+  control: TrafficLightControlConfig,
+): number => {
+  if (phase === 'NS_GREEN') return control.timings.nsGreenSec;
+  if (phase === 'NS_YELLOW') return control.timings.nsYellowSec;
+  if (phase === 'ALL_RED_NS_TO_EW') return control.timings.allRedSec;
+  if (phase === 'EW_GREEN') return control.timings.ewGreenSec;
+  if (phase === 'EW_YELLOW') return control.timings.ewYellowSec;
+  return control.timings.allRedSec;
+};
+
+const getSecondsUntilTrafficLightSideColorChange = (
+  runtime: ReturnType<typeof getTrafficLightRuntimeState>,
+  control: TrafficLightControlConfig,
+  side: TrafficLightSide,
+): number => {
+  const activePhases = TRAFFIC_LIGHT_PHASE_SEQUENCE.filter(
+    (phase) => getTrafficLightPhaseDurationSec(phase, control) > 0,
+  );
+  if (activePhases.length === 0) return 0;
+
+  const currentColor = runtime.colorsBySide[side];
+  const phaseIndex = activePhases.indexOf(runtime.phase);
+  const currentIndex = phaseIndex >= 0 ? phaseIndex : 0;
+  let seconds = Math.max(0, runtime.phaseRemainingSec);
+
+  for (let offset = 1; offset <= activePhases.length; offset += 1) {
+    const nextPhase = activePhases[(currentIndex + offset) % activePhases.length];
+    const nextColor = getTrafficLightColorsByPhase(nextPhase)[side];
+    if (nextColor !== currentColor) {
+      return Math.max(0, Math.ceil(seconds));
+    }
+    seconds += getTrafficLightPhaseDurationSec(nextPhase, control);
+  }
+
+  return Math.max(0, Math.ceil(seconds));
+};
+
+const getTrafficLightSignalIcon = (fillColor: string, secondsLeft: number): L.DivIcon => {
+  const safeSeconds = Math.max(0, Math.min(999, Math.round(secondsLeft)));
+  const diameterPx = TRAFFIC_LIGHT_INDICATOR_RADIUS_PX * 2;
+  const fontSizePx = safeSeconds >= 100 ? 9 : safeSeconds >= 10 ? 10 : 11;
+  const cacheKey = `${fillColor}|${safeSeconds}`;
+  const cached = trafficLightSignalIconCache.get(cacheKey);
+  if (cached) return cached;
+
+  const icon = L.divIcon({
+    className: 'custom-traffic-light-signal-icon',
+    html: `<div style="width:${diameterPx}px;height:${diameterPx}px;border-radius:50%;background:${fillColor};border:2px solid #0b1220;display:flex;align-items:center;justify-content:center;color:#ffffff;font-weight:700;font-size:${fontSizePx}px;line-height:1;text-shadow:0 1px 1px rgba(0,0,0,0.6);box-shadow:0 0 4px rgba(0,0,0,0.4);">${safeSeconds}</div>`,
+    iconSize: [diameterPx, diameterPx],
+    iconAnchor: [TRAFFIC_LIGHT_INDICATOR_RADIUS_PX, TRAFFIC_LIGHT_INDICATOR_RADIUS_PX],
+  });
+
+  trafficLightSignalIconCache.set(cacheKey, icon);
+  return icon;
+};
 
 type TrafficLightApproachEntry = {
   targetNodeId: string;
@@ -559,6 +648,35 @@ const normalizeNetworkState = (networkState: NetworkState): NetworkState => {
     nodes: normalizedNodes,
     edges: normalizedEdges,
   };
+};
+
+const areTrafficLightControlsEquivalent = (
+  a: TrafficLightControlConfig,
+  b: TrafficLightControlConfig,
+): boolean => {
+  const timingsEqual =
+    Math.abs(a.timings.nsGreenSec - b.timings.nsGreenSec) <= 1e-6 &&
+    Math.abs(a.timings.nsYellowSec - b.timings.nsYellowSec) <= 1e-6 &&
+    Math.abs(a.timings.ewGreenSec - b.timings.ewGreenSec) <= 1e-6 &&
+    Math.abs(a.timings.ewYellowSec - b.timings.ewYellowSec) <= 1e-6 &&
+    Math.abs(a.timings.allRedSec - b.timings.allRedSec) <= 1e-6;
+  if (!timingsEqual) return false;
+  if (Math.abs(a.cycleOffsetSec - b.cycleOffsetSec) > 1e-6) return false;
+
+  const aEntries = Object.entries(a.approachSideOverrides).sort(([left], [right]) =>
+    left.localeCompare(right),
+  );
+  const bEntries = Object.entries(b.approachSideOverrides).sort(([left], [right]) =>
+    left.localeCompare(right),
+  );
+  if (aEntries.length !== bEntries.length) return false;
+  for (let i = 0; i < aEntries.length; i += 1) {
+    const [aKey, aValue] = aEntries[i];
+    const [bKey, bValue] = bEntries[i];
+    if (aKey !== bKey || aValue !== bValue) return false;
+  }
+
+  return true;
 };
 
 const getIconForNode = (node: Node, isSelected: boolean) => {
@@ -934,16 +1052,23 @@ export function MapEditor() {
     [state.nodes],
   );
 
+  const isVehicleSimulationActive = targetCarCount > 0 && cars.length > 0;
+  const effectiveTrafficLightClockSec =
+    typeof performance !== 'undefined' && isVehicleSimulationActive
+      ? performance.now() / 1000
+      : trafficLightClockSec;
+  const trafficLightSignalSecondToken = Math.floor(effectiveTrafficLightClockSec);
+
   const trafficLightRuntimeById = useMemo(() => {
     const runtimeById: Record<string, ReturnType<typeof getTrafficLightRuntimeState>> = {};
     trafficLightNodes.forEach((lightNode) => {
       runtimeById[lightNode.id] = getTrafficLightRuntimeState(
-        trafficLightClockSec,
+        effectiveTrafficLightClockSec,
         lightNode.trafficLightControl ?? getDefaultTrafficLightControlConfig(),
       );
     });
     return runtimeById;
-  }, [trafficLightClockSec, trafficLightNodes]);
+  }, [effectiveTrafficLightClockSec, trafficLightNodes]);
 
   const { trafficLightApproachesById, trafficLightLocalFrameById } = useMemo(() => {
     const rawByLightId: Record<
@@ -1550,6 +1675,77 @@ export function MapEditor() {
     setTargetCarCount(0);
     setCarInputError('');
   };
+
+  const canSmartSync = trafficLightNodes.length >= 2;
+
+  const handleSmartTrafficLightSync = useCallback(() => {
+    if (trafficLightNodes.length < 2) return;
+
+    const approachesForCoordination: Record<string, TrafficLightApproachForCoordination[]> = {};
+    (Object.entries(trafficLightApproachesById) as Array<[string, TrafficLightApproachEntry[]]>).forEach(
+      ([lightId, approaches]) => {
+      approachesForCoordination[lightId] = approaches.map((approach) => ({
+        targetNodeId: approach.targetNodeId,
+        directedEdgeIds: [...approach.directedEdgeIds],
+        effectiveSide: approach.effectiveSide,
+      }));
+      },
+    );
+
+    const smartSyncResult = calculateSmartTrafficLightCoordination({
+      state,
+      edgeMetrics: coefficientSummary.edgeMetrics,
+      directedEdges: simulationGraph.directedEdges,
+      trafficLightApproachesById: approachesForCoordination,
+      trafficLightLocalFrameById,
+      completeGroups: coefficientSummary.completeGroups,
+    });
+
+    const nodeIds = new Set(Object.keys(state.nodes));
+    const nextNodes: typeof state.nodes = { ...state.nodes };
+    let hasChanges = false;
+
+    trafficLightNodes.forEach((lightNode) => {
+      const computed = smartSyncResult.controlByLightId[lightNode.id];
+      if (!computed) return;
+
+      const currentControl = sanitizeTrafficLightControlConfig(
+        lightNode.trafficLightControl ?? getDefaultTrafficLightControlConfig(),
+        nodeIds,
+      );
+      const nextControl = sanitizeTrafficLightControlConfig(
+        {
+          ...currentControl,
+          timings: computed.timings,
+          cycleOffsetSec: computed.cycleOffsetSec,
+          approachSideOverrides: currentControl.approachSideOverrides,
+        },
+        nodeIds,
+      );
+
+      if (areTrafficLightControlsEquivalent(currentControl, nextControl)) return;
+      hasChanges = true;
+      nextNodes[lightNode.id] = {
+        ...lightNode,
+        trafficLightControl: nextControl,
+      };
+    });
+
+    if (!hasChanges) return;
+    pushState({
+      ...state,
+      nodes: nextNodes,
+    });
+  }, [
+    coefficientSummary.completeGroups,
+    coefficientSummary.edgeMetrics,
+    pushState,
+    simulationGraph.directedEdges,
+    state,
+    trafficLightApproachesById,
+    trafficLightLocalFrameById,
+    trafficLightNodes,
+  ]);
   
   const MapEvents = () => {
     useMapEvents({
@@ -1566,8 +1762,10 @@ export function MapEditor() {
         setMode={setMode}
         canUndo={currentIndex > 0}
         canRedo={currentIndex < history.length - 1}
+        canSmartSync={canSmartSync}
         undo={undo}
         redo={redo}
+        onSmartSync={handleSmartTrafficLightSync}
         onFileUpload={handleFileUpload}
         onExportJson={exportJson}
         onExportOsm={exportOsm}
@@ -1622,18 +1820,12 @@ export function MapEditor() {
             if (isIntersectionConnectionEdge) {
               return (
                 <React.Fragment key={edge.id}>
+                  
                   <Polyline
                     positions={positions}
-                    color="#0f172a"
-                    weight={4}
-                    opacity={0.18}
-                    pathOptions={{ interactive: false }}
-                  />
-                  <Polyline
-                    positions={positions}
-                    color="#06b6d4"
+                    color="#4b5563"
                     weight={2}
-                    opacity={0.9}
+                    opacity={0.5}
                     pathOptions={{
                       dashArray: '5, 7',
                       interactive: false,
@@ -1655,7 +1847,8 @@ export function MapEditor() {
                     contextmenu: (e) => handleEdgeRightClick(edge.id, e)
                   }}
                   pathOptions={{
-                    interactive: true
+                    interactive: true,
+                    bubblingMouseEvents: false,
                   }}
                 />
                 <Polyline
@@ -1668,7 +1861,8 @@ export function MapEditor() {
                     contextmenu: (e) => handleEdgeRightClick(edge.id, e)
                   }}
                   pathOptions={{
-                    dashArray: edge.isOneWay ? '10, 10' : undefined
+                    dashArray: edge.isOneWay ? '10, 10' : undefined,
+                    bubblingMouseEvents: false,
                   }}
                 >
                   <Tooltip sticky direction="center">
@@ -1677,11 +1871,13 @@ export function MapEditor() {
                     <div className="text-xs text-gray-700">Lane width: {edge.laneWidth} m</div>
                     <div className="text-xs text-gray-700">Turn radius: {edge.turnRadius} m</div>
                     <div className="text-xs text-gray-700">Slope: {edge.roadSlope}</div>
-                    <div className="text-xs text-gray-700">Parking type: {edge.parkingType}</div>
-                    <div className="text-xs text-gray-700">Maneuver type: {edge.maneuverType}</div>
+                    <div className="text-xs text-gray-700">Parking type: {PARKING_TYPE_LABELS[edge.parkingType]}</div>
+                    <div className="text-xs text-gray-700">Maneuver type: {MANEUVER_TYPE_LABELS[edge.maneuverType]}</div>
                     <div className="text-xs text-gray-700">Turn percentage: {edge.turnPercentage}</div>
                     <div className="text-xs text-gray-700">Pedestrian intensity: {edge.pedestrianIntensity} (mode: {edge.pedestrianIntensityMode})</div>
-                    <div className="text-xs text-gray-700">Stop type: {edge.stopType} (mode: {edge.stopTypeMode})</div>
+                    <div className="text-xs text-gray-700">
+                      Stop type: {STOP_TYPE_LABELS[edge.stopType]} (mode: {edge.stopTypeMode})
+                    </div>
                     {edgeMetrics && (
                       <div className="mt-1 rounded border border-gray-200 bg-gray-50 p-1.5">
                         <div className="text-[11px] font-semibold text-gray-700">Coefficients</div>
@@ -1768,6 +1964,8 @@ export function MapEditor() {
               />
             ))}
           </Pane>
+
+          <Pane name="traffic-light-signal-pane" style={{ zIndex: 900 }} />
           
           {(Object.values(state.nodes) as Node[]).map(node => (
             <React.Fragment key={node.id}>
@@ -1787,36 +1985,39 @@ export function MapEditor() {
 
               {node.type === 'traffic_light' && trafficLightRuntimeById[node.id] && (
                 <>
-                  {TRAFFIC_LIGHT_SIDE_ORDER.map((side) => {
-                    const localFrame =
-                      trafficLightLocalFrameById[node.id] ?? getDefaultTrafficLightLocalFrame();
-                    const sideVector = getTrafficLightSideUnitVector(localFrame, side);
-                    const northOffset = sideVector.northMeters * TRAFFIC_LIGHT_INDICATOR_OFFSET_METERS;
-                    const eastOffset = sideVector.eastMeters * TRAFFIC_LIGHT_INDICATOR_OFFSET_METERS;
-                    const [lat, lng] = offsetLatLngByMeters(node.lat, node.lng, northOffset, eastOffset);
-                    const sideColor = trafficLightRuntimeById[node.id].colorsBySide[side];
-                    const fillColor = TRAFFIC_LIGHT_COLOR_HEX[sideColor];
-
-                    return (
-                      <CircleMarker
-                        key={`${node.id}-tl-side-${side}`}
-                        center={[lat, lng]}
-                        radius={TRAFFIC_LIGHT_INDICATOR_RADIUS_PX}
-                        pathOptions={{
-                          color: '#111827',
-                          weight: 1,
-                          fillColor,
-                          fillOpacity: 1,
-                        }}
-                        interactive={false}
-                        keyboard={false}
-                      >
-                        <Tooltip direction="top" opacity={0.95}>
-                          {TRAFFIC_LIGHT_SIDE_LABELS[side]}: {sideColor}
-                        </Tooltip>
-                      </CircleMarker>
+                  {(() => {
+                    const runtime = trafficLightRuntimeById[node.id];
+                    const control = sanitizeTrafficLightControlConfig(
+                      node.trafficLightControl ?? getDefaultTrafficLightControlConfig(),
                     );
-                  })}
+
+                    return TRAFFIC_LIGHT_SIDE_ORDER.map((side) => {
+                      const localFrame =
+                        trafficLightLocalFrameById[node.id] ?? getDefaultTrafficLightLocalFrame();
+                      const sideVector = getTrafficLightSideUnitVector(localFrame, side);
+                      const northOffset = sideVector.northMeters * TRAFFIC_LIGHT_INDICATOR_OFFSET_METERS;
+                      const eastOffset = sideVector.eastMeters * TRAFFIC_LIGHT_INDICATOR_OFFSET_METERS;
+                      const [lat, lng] = offsetLatLngByMeters(node.lat, node.lng, northOffset, eastOffset);
+                      const sideColor = runtime.colorsBySide[side];
+                      const fillColor = TRAFFIC_LIGHT_COLOR_HEX[sideColor];
+                      const secondsLeft = getSecondsUntilTrafficLightSideColorChange(runtime, control, side);
+
+                      return (
+                        <Marker
+                          key={`${node.id}-tl-side-${side}-${trafficLightSignalSecondToken}`}
+                          position={[lat, lng]}
+                          pane="traffic-light-signal-pane"
+                          icon={getTrafficLightSignalIcon(fillColor, secondsLeft)}
+                          interactive={false}
+                          keyboard={false}
+                        >
+                          <Tooltip direction="top" opacity={0.95}>
+                            {TRAFFIC_LIGHT_SIDE_LABELS[side]}: {sideColor}, осталось {secondsLeft} с
+                          </Tooltip>
+                        </Marker>
+                      );
+                    });
+                  })()}
                 </>
               )}
 
@@ -2143,9 +2344,9 @@ export function MapEditor() {
                   }}
                   className="w-full rounded-md border border-gray-300 bg-white px-2 py-1.5 text-gray-800 focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-200"
                 >
-                  <option value={1}>1</option>
-                  <option value={2}>2</option>
-                  <option value={3}>3</option>
+                  <option value={1}>{PARKING_TYPE_LABELS[1]}</option>
+                  <option value={2}>{PARKING_TYPE_LABELS[2]}</option>
+                  <option value={3}>{PARKING_TYPE_LABELS[3]}</option>
                 </select>
               </label>
 
@@ -2160,11 +2361,11 @@ export function MapEditor() {
                   }}
                   className="w-full rounded-md border border-gray-300 bg-white px-2 py-1.5 text-gray-800 focus:border-blue-400 focus:outline-none focus:ring-2 focus:ring-blue-200"
                 >
-                  <option value={1}>1</option>
-                  <option value={2}>2</option>
-                  <option value={3}>3</option>
-                  <option value={4}>4</option>
-                  <option value={5}>5</option>
+                  <option value={1}>{MANEUVER_TYPE_LABELS[1]}</option>
+                  <option value={2}>{MANEUVER_TYPE_LABELS[2]}</option>
+                  <option value={3}>{MANEUVER_TYPE_LABELS[3]}</option>
+                  <option value={4}>{MANEUVER_TYPE_LABELS[4]}</option>
+                  <option value={5}>{MANEUVER_TYPE_LABELS[5]}</option>
                 </select>
               </label>
 
@@ -2290,9 +2491,9 @@ export function MapEditor() {
                   }}
                   className="w-full rounded-md border border-gray-300 bg-white px-2 py-1.5 text-gray-800"
                 >
-                  <option value={1}>1</option>
-                  <option value={2}>2</option>
-                  <option value={3}>3</option>
+                  <option value={1}>{STOP_TYPE_LABELS[1]}</option>
+                  <option value={2}>{STOP_TYPE_LABELS[2]}</option>
+                  <option value={3}>{STOP_TYPE_LABELS[3]}</option>
                 </select>
               </div>
 
