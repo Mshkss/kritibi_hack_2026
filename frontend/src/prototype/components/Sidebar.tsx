@@ -100,8 +100,10 @@ type SidebarProps = {
   setMode: (mode: any) => void;
   canUndo: boolean;
   canRedo: boolean;
+  canSmartSync: boolean;
   undo: () => void;
   redo: () => void;
+  onSmartSync: () => void;
   onFileUpload: (e: React.ChangeEvent<HTMLInputElement>) => void;
   onExportJson: () => void;
   onExportOsm: () => void;
@@ -130,8 +132,10 @@ export function Sidebar({
   setMode,
   canUndo,
   canRedo,
+  canSmartSync,
   undo,
   redo,
+  onSmartSync,
   onFileUpload,
   onExportJson,
   onExportOsm,
@@ -225,6 +229,17 @@ export function Sidebar({
             title="Повторить"
           >
             <Redo className="w-5 h-5" />
+          </button>
+        </div>
+
+        <div className="mb-4">
+          <button
+            onClick={onSmartSync}
+            disabled={!canSmartSync}
+            className="w-full px-3 py-2 rounded-md text-sm font-medium text-white bg-emerald-600 hover:bg-emerald-700 disabled:bg-emerald-300 disabled:cursor-not-allowed"
+            title="Автоматический расчет таймингов и оффсетов для светофоров"
+          >
+            Умная синхронизация светофоров
           </button>
         </div>
 
