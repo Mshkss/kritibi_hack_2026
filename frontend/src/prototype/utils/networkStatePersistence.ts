@@ -1,9 +1,21 @@
-import { Edge, EdgeValueMode, ManeuverType, NetworkState, Node, NodeType, ParkingType, Point, StopType } from '../types';
+import {
+  Edge,
+  EdgeValueMode,
+  ManeuverType,
+  NetworkState,
+  Node,
+  NodeType,
+  ParkingType,
+  Point,
+  StopType,
+  TrafficLightSide,
+} from '../types';
 
 export const PERSISTED_EDITOR_STATE_VERSION = 1 as const;
 export const NETWORK_EDITOR_STORAGE_KEY = 'lane-network-editor.session.v1';
 export const NETWORK_EDITOR_HISTORY_LIMIT = 100;
 export const NETWORK_EDITOR_AUTOSAVE_DEBOUNCE_MS = 300;
+export const NETWORK_EDITOR_AUTOSAVE_MIN_INTERVAL_MS = 1200;
 
 export type EditorHistoryState = {
   history: NetworkState[];
@@ -46,6 +58,12 @@ const EDGE_VALUE_MODE_SET: Set<EdgeValueMode> = new Set(['auto', 'manual']);
 const PARKING_TYPE_SET: Set<ParkingType> = new Set([1, 2, 3]);
 const STOP_TYPE_SET: Set<StopType> = new Set([1, 2, 3]);
 const MANEUVER_TYPE_SET: Set<ManeuverType> = new Set([1, 2, 3, 4, 5]);
+const TRAFFIC_LIGHT_SIDE_SET: Set<TrafficLightSide> = new Set([
+  'north',
+  'east',
+  'south',
+  'west',
+]);
 
 const isRecord = (value: unknown): value is Record<string, unknown> =>
   typeof value === 'object' && value !== null && !Array.isArray(value);
@@ -63,10 +81,28 @@ const isStopType = (value: unknown): value is StopType =>
   isFiniteNumber(value) && STOP_TYPE_SET.has(value as StopType);
 const isManeuverType = (value: unknown): value is ManeuverType =>
   isFiniteNumber(value) && MANEUVER_TYPE_SET.has(value as ManeuverType);
+const isTrafficLightSide = (value: unknown): value is TrafficLightSide =>
+  typeof value === 'string' && TRAFFIC_LIGHT_SIDE_SET.has(value as TrafficLightSide);
 
 const isPoint = (value: unknown): value is Point => {
   if (!isRecord(value)) return false;
   return isFiniteNumber(value.lat) && isFiniteNumber(value.lng);
+};
+
+const isTrafficLightControlConfig = (value: unknown): boolean => {
+  if (!isRecord(value)) return false;
+  if (!isRecord(value.timings)) return false;
+  if (!isFiniteNumber(value.timings.nsGreenSec) || value.timings.nsGreenSec <= 0) return false;
+  if (!isFiniteNumber(value.timings.nsYellowSec) || value.timings.nsYellowSec <= 0) return false;
+  if (!isFiniteNumber(value.timings.ewGreenSec) || value.timings.ewGreenSec <= 0) return false;
+  if (!isFiniteNumber(value.timings.ewYellowSec) || value.timings.ewYellowSec <= 0) return false;
+  if (!isFiniteNumber(value.timings.allRedSec) || value.timings.allRedSec < 0) return false;
+  if (!isFiniteNumber(value.cycleOffsetSec)) return false;
+  if (!isRecord(value.approachSideOverrides)) return false;
+
+  return Object.entries(value.approachSideOverrides).every(
+    ([nodeId, side]) => nodeId.length > 0 && isTrafficLightSide(side),
+  );
 };
 
 const isNode = (value: unknown): value is Node => {
@@ -76,6 +112,9 @@ const isNode = (value: unknown): value is Node => {
   if (value.name !== undefined && typeof value.name !== 'string') return false;
   if (value.speedLimit !== undefined && !isFiniteNumber(value.speedLimit)) return false;
   if (value.type !== undefined && !isNodeType(value.type)) return false;
+  if (value.trafficLightControl !== undefined && !isTrafficLightControlConfig(value.trafficLightControl)) {
+    return false;
+  }
   return true;
 };
 
@@ -127,6 +166,38 @@ const isNetworkState = (value: unknown): value is NetworkState => {
 };
 
 const clamp = (value: number, min: number, max: number) => Math.min(max, Math.max(min, value));
+
+const persistedPayloadCacheByStorageKey = new Map<
+  string,
+  {
+    fingerprint: string;
+    serialized: string;
+  }
+>();
+const networkStateRefIds = new WeakMap<NetworkState, number>();
+let nextNetworkStateRefId = 1;
+
+const getNetworkStateRefId = (state: NetworkState): number => {
+  const existing = networkStateRefIds.get(state);
+  if (existing !== undefined) return existing;
+  const next = nextNetworkStateRefId++;
+  networkStateRefIds.set(state, next);
+  return next;
+};
+
+const buildHistoryFingerprint = (history: NetworkState[], currentIndex: number): string => {
+  const safeIndex = clamp(currentIndex, 0, history.length - 1);
+  const currentState = history[safeIndex];
+  const firstState = history[0];
+  const lastState = history[history.length - 1];
+  return [
+    history.length,
+    safeIndex,
+    getNetworkStateRefId(firstState),
+    getNetworkStateRefId(currentState),
+    getNetworkStateRefId(lastState),
+  ].join('|');
+};
 
 const isQuotaExceededError = (error: unknown): boolean => {
   if (!(error instanceof DOMException)) return false;
@@ -212,7 +283,14 @@ export function loadPersistedHistoryState({
 
   try {
     const parsed = JSON.parse(rawText) as unknown;
-    return sanitizePersistedHistory(parsed, normalizeState);
+    const sanitized = sanitizePersistedHistory(parsed, normalizeState);
+    if (sanitized) {
+      persistedPayloadCacheByStorageKey.set(storageKey, {
+        fingerprint: buildHistoryFingerprint(sanitized.history, sanitized.currentIndex),
+        serialized: rawText,
+      });
+    }
+    return sanitized;
   } catch {
     return null;
   }
@@ -232,10 +310,21 @@ export function persistHistoryStateWithFallback({
     const startIndex = history.length - candidateLength;
     const candidateHistory = history.slice(startIndex);
     const candidateIndex = clamp(currentIndex - startIndex, 0, candidateHistory.length - 1);
+    const candidateFingerprint = buildHistoryFingerprint(candidateHistory, candidateIndex);
+    const cached = persistedPayloadCacheByStorageKey.get(storageKey);
+    if (cached && cached.fingerprint === candidateFingerprint) {
+      return;
+    }
+
     const payload = toPersistedPayload(candidateHistory, candidateIndex);
+    const serializedPayload = JSON.stringify(payload);
 
     try {
-      window.localStorage.setItem(storageKey, JSON.stringify(payload));
+      window.localStorage.setItem(storageKey, serializedPayload);
+      persistedPayloadCacheByStorageKey.set(storageKey, {
+        fingerprint: candidateFingerprint,
+        serialized: serializedPayload,
+      });
       return;
     } catch (error) {
       if (isQuotaExceededError(error) && candidateLength > 1) {
