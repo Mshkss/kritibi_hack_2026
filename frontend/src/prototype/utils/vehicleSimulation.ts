@@ -54,6 +54,7 @@ type AdvanceCarParams = {
   graph: SimulationGraphRuntime;
   dtSeconds: number;
   random?: () => number;
+  canLeaveEdge?: (edge: DirectedEdgeRuntime) => boolean;
 };
 
 const DEFAULT_SPEED_LIMIT_KMH = 60;
@@ -64,6 +65,7 @@ const MAX_EDGE_TRANSITIONS_PER_STEP = 32;
 const LOOP_REPEAT_THRESHOLD = 4;
 const LOOP_WINDOW_SIZE = 12;
 const LOOP_UNIQUE_NODE_LIMIT = 3;
+const EDGE_EXIT_STOP_BUFFER_METERS = 4;
 
 const clamp = (value: number, min: number, max: number): number =>
   Math.min(max, Math.max(min, value));
@@ -604,6 +606,7 @@ export const advanceCar = ({
   graph,
   dtSeconds,
   random = Math.random,
+  canLeaveEdge,
 }: AdvanceCarParams): CarState | null => {
   const restoredCar = sanitizeCar(car, graph);
   if (!restoredCar) return spawnCar(graph, car.id, random);
@@ -618,8 +621,18 @@ export const advanceCar = ({
   let distanceOnEdge = restoredCar.distanceOnEdge + normalizeSpeedMps(edge.speedLimit) * dtSeconds;
   let transitions = 0;
   let recentNodeIds = sanitizeRecentNodeIds(restoredCar.recentNodeIds);
+  if (canLeaveEdge && !canLeaveEdge(edge)) {
+    const stopLineDistance = Math.max(0, edge.effectiveLength - EDGE_EXIT_STOP_BUFFER_METERS);
+    distanceOnEdge = Math.min(distanceOnEdge, stopLineDistance);
+  }
 
   while (distanceOnEdge > edge.effectiveLength + EPSILON_DISTANCE_METERS) {
+    if (canLeaveEdge && !canLeaveEdge(edge)) {
+      const stopLineDistance = Math.max(0, edge.effectiveLength - EDGE_EXIT_STOP_BUFFER_METERS);
+      distanceOnEdge = Math.min(distanceOnEdge, stopLineDistance);
+      break;
+    }
+
     distanceOnEdge -= edge.effectiveLength;
     const loopUpdate = updateLoopHistory(recentNodeIds, edge.targetId);
     recentNodeIds = loopUpdate.recentNodeIds;
